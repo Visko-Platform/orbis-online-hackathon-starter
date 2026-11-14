@@ -335,3 +335,505 @@ aside code {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Cue progression (/cues)
+   Transition encoding: a morph connector is a gradient (the shot blends from
+   one cue into the next); a cut connector is a broken line (hard restart).
+   Pulses run at Orbis's ~1.8 s chunk cadence, so motion means "the model is
+   moving to a new state", never decoration.
+   ------------------------------------------------------------------------- */
+
+header a {
+  color: #e5c978;
+}
+
+a.eyebrow {
+  text-decoration: none;
+}
+
+button.ghost {
+  color: #ded5b8;
+  background: transparent;
+  border-color: #4e4a3e;
+}
+
+button.small {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+
+.cue-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.85fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.cue-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cue-player {
+  position: relative;
+}
+
+.cue-onair {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  color: #ffd9d4;
+  font:
+    12px ui-monospace,
+    monospace;
+  background: #191919cc;
+  border-radius: 999px;
+}
+
+.cue-onair::before {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: #ff5a4f;
+  border-radius: 50%;
+}
+
+.cue-onair.is-moving::before {
+  background: #e5c978;
+  animation: cue-pulse 1.8s ease-in-out infinite;
+}
+
+.cue-transport {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: #0f0f11;
+  border: 1px solid #3b3932;
+  border-radius: 12px;
+}
+
+.cue-transport-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cue-clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-left: 6px;
+  color: #e5c978;
+  font:
+    600 1.3rem ui-monospace,
+    monospace;
+  letter-spacing: -0.02em;
+}
+
+.cue-clock small {
+  color: #77746b;
+  font: 0.7rem Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.cue-clock.is-low {
+  color: #ff8a7a;
+}
+
+.cue-clock.is-idle {
+  color: #77746b;
+}
+
+.cue-now-next {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #141416;
+  border-radius: 10px;
+}
+
+.cue-now-next-arrow {
+  color: #4e4a3e;
+  font-size: 1.2rem;
+}
+
+.cue-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cue-slot-thumb {
+  flex: none;
+  width: 96px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid #2c2a25;
+  border-radius: 6px;
+}
+
+.cue-slot-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cue-slot-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cue-slot-text strong {
+  font-size: 0.95rem;
+}
+
+.cue-slot-text span:last-child {
+  color: #918d82;
+  font-size: 0.74rem;
+}
+
+.cue-label {
+  color: #e5c978;
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.cue-fire {
+  min-width: 190px;
+  padding: 12px 16px;
+  font-weight: 600;
+}
+
+label.cue-auto {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cue-auto input[type="checkbox"] {
+  width: auto;
+  accent-color: #e5c978;
+}
+
+.cue-auto input[type="number"] {
+  width: 64px;
+  padding: 5px 8px;
+}
+
+.cue-panel {
+  max-height: calc(100vh - 80px);
+  padding: 12px;
+  overflow-y: auto;
+  background: #0f0f11;
+  border: 1px solid #3b3932;
+  border-radius: 12px;
+  transition: border-color 200ms ease;
+}
+
+.cue-panel.is-dragging {
+  border: 1px dashed #e5c978;
+}
+
+.cue-panel-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cue-panel-head h2 {
+  margin: 2px 0 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+
+.cue-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 28px 18px;
+  color: #918d82;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed #4e4a3e;
+}
+
+.cue-empty:hover {
+  border-color: #e5c978;
+}
+
+.cue-empty strong {
+  color: #ded5b8;
+  font-size: 1rem;
+}
+
+.cue-empty span {
+  max-width: 52ch;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.cue-list {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cue-card {
+  display: grid;
+  grid-template-columns: 28px 112px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  background: #141416;
+  border: 1px solid #2c2a25;
+  border-radius: 10px;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.cue-card.is-next {
+  border-color: #6b5f3b;
+}
+
+.cue-card.is-live {
+  background: #19170f;
+  border-color: #e5c978;
+}
+
+.cue-number {
+  padding-top: 2px;
+  color: #77746b;
+  font:
+    600 1.1rem ui-monospace,
+    monospace;
+}
+
+.cue-card.is-live .cue-number {
+  color: #e5c978;
+}
+
+.cue-thumb {
+  width: 112px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #000;
+  border-radius: 6px;
+}
+
+.cue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cue-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cue-title span {
+  overflow: hidden;
+  color: #ded5b8;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cue-flag {
+  flex: none;
+  padding: 2px 7px;
+  color: #e5c978;
+  font:
+    600 10px ui-monospace,
+    monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #2a2619;
+  border-radius: 999px;
+}
+
+.cue-flag.is-live {
+  color: #ffb2a8;
+  background: #3c1717;
+}
+
+input.cue-field,
+textarea.cue-field {
+  padding: 7px 9px;
+  font-size: 0.8rem;
+}
+
+textarea.cue-field {
+  min-height: 104px;
+}
+
+.cue-prompt summary {
+  color: #918d82;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.cue-prompt[open] summary {
+  margin-bottom: 6px;
+}
+
+.cue-prompt > * + * {
+  margin-top: 6px;
+}
+
+.cue-prompt .is-ready {
+  color: #8ee59d;
+}
+
+.cue-prompt .is-writing {
+  color: #e5c978;
+  animation: cue-pulse 1.8s ease-in-out infinite;
+}
+
+.cue-prompt .is-error {
+  color: #ffb2b2;
+}
+
+.cue-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cue-order {
+  display: flex;
+  gap: 4px;
+}
+
+.cue-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 2px 22px;
+}
+
+.cue-link-line {
+  flex: none;
+  width: 2px;
+  height: 34px;
+}
+
+.cue-link.is-morph .cue-link-line {
+  background: linear-gradient(to bottom, #6b5f3b, #e5c978);
+}
+
+.cue-link.is-cut .cue-link-line {
+  background: linear-gradient(
+    to bottom,
+    #4e4a3e 0 38%,
+    transparent 38% 62%,
+    #4e4a3e 62% 100%
+  );
+}
+
+.cue-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #3b3932;
+  border-radius: 999px;
+}
+
+.cue-switch button {
+  padding: 3px 11px;
+  color: #918d82;
+  font-size: 0.72rem;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+}
+
+.cue-switch button.is-on {
+  color: #15130e;
+  background: #ded5b8;
+}
+
+.cue-link-hint {
+  color: #77746b;
+  font-size: 0.72rem;
+}
+
+@keyframes cue-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cue-onair.is-moving::before,
+  .cue-prompt .is-writing {
+    animation: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .cue-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cue-panel {
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .cue-now-next {
+    grid-template-columns: 1fr;
+  }
+
+  .cue-now-next-arrow {
+    display: none;
+  }
+
+  .cue-card {
+    grid-template-columns: 24px 88px minmax(0, 1fr);
+  }
+
+  .cue-thumb {
+    width: 88px;
+  }
+
+  .cue-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+.cue-slot-thumb:empty {
+  background: transparent;
+  border-style: dashed;
+  border-color: #3b3932;
+}

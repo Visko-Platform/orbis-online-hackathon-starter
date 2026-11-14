@@ -325,6 +325,39 @@ export function useOrbisSession(
       await sendCommand("set_prompt", { prompt: prompt.trim() });
     });
 
+  // Explicit-argument variants for callers that drive Orbis from their own
+  // state (the cue list) instead of this hook's single prompt/image form.
+  // Each resolves true when the command chain succeeded.
+  const startWith = (startImage: File | null, runPrompt: string) =>
+    runAction(() => startGeneration(startImage, runPrompt));
+
+  // Mid-run prompt change: Orbis morphs toward it at the next chunk boundary.
+  const steerTo = (nextPrompt: string) =>
+    runAction(async () => {
+      if (!nextPrompt.trim()) throw new Error("Enter a prompt before steering.");
+      const rawReply = await sendCommand("set_prompt", {
+        prompt: nextPrompt.trim(),
+      });
+      if (!rawReply) throw new Error("Orbis did not accept the prompt.");
+      const reply = unwrapOrbisMessage(rawReply);
+      if (reply.type === "command_error") {
+        throw new Error(`set_prompt: ${reply.reason || "rejected"}`);
+      }
+    });
+
+  // One sentence describing what the run should SOUND like (not what is on
+  // screen). Send before start; Orbis captures audio settings at start.
+  const setAudioPrompt = (soundPrompt: string) =>
+    runAction(() => sendCommand("set_audio_prompt", { prompt: soundPrompt }));
+
+  // Orbis ignores set_image during a run, so landing on an exact image means
+  // a hard cut: reset clears the run, then the normal image-to-video chain.
+  const cutTo = (startImage: File, runPrompt: string) =>
+    runAction(async () => {
+      await sendCommand("reset", {});
+      await startGeneration(startImage, runPrompt);
+    });
+
   const disconnectSession = async () => {
     disconnecting.current = true;
     setRunStarted(false);
@@ -380,6 +413,10 @@ export function useOrbisSession(
     startFromNanoOutput,
     setNanoBusy,
     steer,
+    startWith,
+    steerTo,
+    cutTo,
+    setAudioPrompt,
     pause: () => runAction(() => sendCommand("pause", {})),
     resume: () => runAction(() => sendCommand("resume", {})),
     reset: () => runAction(() => sendCommand("reset", {})),

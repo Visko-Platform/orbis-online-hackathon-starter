@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { SESSION_LIMIT_SECONDS } from "@/lib/orbis";
+
 const REACTOR_API_URL = "https://api.reactor.inc";
 const MODEL_NAME = "reactor/visko-orbis-stable";
 
@@ -24,7 +26,10 @@ export async function POST() {
         {
           type: "session",
           resources: { models: { match: [MODEL_NAME] } },
-          constraints: { max_sessions: 1, max_session_duration_seconds: 300 },
+          constraints: {
+            max_sessions: 1,
+            max_session_duration_seconds: SESSION_LIMIT_SECONDS,
+          },
         },
       ],
     }),

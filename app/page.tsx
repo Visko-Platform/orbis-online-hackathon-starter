@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { OrbisDemo } from "@/components/orbis-demo";
 
 export default function Home() {
@@ -7,7 +9,8 @@ export default function Home() {
         <h1>Orbis starter</h1>
         <p>
           Connect, generate a continuous live video, then steer it by changing
-          the prompt while it runs.
+          the prompt while it runs.{" "}
+          <Link href="/cues">Queue a progression of images →</Link>
         </p>
       </header>
       <OrbisDemo />
