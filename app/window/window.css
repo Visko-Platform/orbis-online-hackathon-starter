@@ -1,0 +1,739 @@
+/* Starship Window. Every position below is a percentage of the 1920×1080
+   cockpit art, so UI stays glued to the painted screens at any window size.
+   Text sizes use cqw (1cqw = 1% of the stage width) for the same reason. */
+
+.sw {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  font-family: var(--font-hud), ui-monospace, monospace;
+}
+
+.sw-stage {
+  --px: 0;
+  --py: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100vw, 177.78vh);
+  aspect-ratio: 16 / 9;
+  container-type: inline-size;
+  transform: translate(-50%, -50%);
+}
+
+/* 1. The world: oversized a little so parallax never shows an edge. */
+.sw-world {
+  position: absolute;
+  inset: -3%;
+  background: #000;
+  transform: translate(calc(var(--px) * 7px), calc(var(--py) * 4px));
+}
+
+.sw-world > *,
+.sw-world video {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.sw-starfield {
+  background:
+    radial-gradient(ellipse 60% 45% at 40% 40%, #0f4d55cc, transparent 70%),
+    radial-gradient(ellipse 40% 35% at 65% 50%, #6b3d12aa, transparent 70%),
+    radial-gradient(1.5px 1.5px at 12% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 28% 58%, #cfe, transparent),
+    radial-gradient(1.5px 1.5px at 47% 18%, #fff, transparent),
+    radial-gradient(1px 1px at 63% 66%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 78% 30%, #fde, transparent),
+    radial-gradient(1px 1px at 88% 52%, #fff, transparent),
+    radial-gradient(1px 1px at 35% 38%, #fff, transparent),
+    radial-gradient(1px 1px at 55% 45%, #def, transparent),
+    #02030a;
+  animation: sw-drift 40s ease-in-out infinite alternate;
+}
+
+@keyframes sw-drift {
+  to {
+    transform: scale(1.08);
+  }
+}
+
+/* 2. Warp streaks. */
+.sw-warp {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 3. Glass: a faint diagonal sheen plus a vignette. */
+.sw-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      115deg,
+      transparent 28%,
+      rgba(255, 255, 255, 0.1) 40%,
+      transparent 52%
+    ),
+    radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.45));
+}
+
+/* 4–5. Cockpit and console UI move together, against the world. */
+.sw-cabin {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translate(calc(var(--px) * -9px), calc(var(--py) * -5px))
+    scale(1.02);
+}
+
+.sw-cabin-inner {
+  position: absolute;
+  inset: 0;
+}
+
+.sw-cabin-inner.is-shaking {
+  animation: sw-shake 0.11s linear infinite;
+}
+
+@keyframes sw-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(1.5px, -1px); }
+  50% { transform: translate(-1px, 1.5px); }
+  75% { transform: translate(1px, 1px); }
+  100% { transform: translate(-1.5px, -0.5px); }
+}
+
+.sw-cockpit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+/* Console screens (positions measured on the art). */
+.sw-screen {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25cqw;
+  overflow: hidden;
+  color: #8ff3ea;
+  font-size: 0.62cqw;
+  line-height: 1.25;
+  text-shadow: 0 0 0.4cqw rgba(80, 240, 220, 0.6);
+  pointer-events: auto;
+}
+
+.sw-screen-left,
+.sw-screen-right {
+  top: 87.2%;
+  width: 7.9%;
+  height: 6.8%;
+  justify-content: center;
+  padding: 0 0.4cqw;
+  background: rgba(2, 14, 16, 0.82);
+  border-radius: 0.2cqw;
+}
+
+.sw-screen-left {
+  left: 30.1%;
+}
+
+.sw-screen-right {
+  left: 62%;
+}
+
+.sw-screen strong {
+  overflow: hidden;
+  font-size: 0.95cqw;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-screen strong.is-low {
+  color: #ffb37a;
+  text-shadow: 0 0 0.4cqw rgba(255, 150, 80, 0.7);
+}
+
+.sw-label {
+  color: #f5b45a;
+  font-size: 0.5cqw;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-shadow: 0 0 0.4cqw rgba(255, 170, 70, 0.5);
+}
+
+.sw-era {
+  color: #5fcfc4;
+}
+
+.sw-bar {
+  display: block;
+  height: 0.25cqw;
+  background: rgba(143, 243, 234, 0.15);
+}
+
+.sw-bar span {
+  display: block;
+  height: 100%;
+  background: #8ff3ea;
+  transition: width 1s linear;
+}
+
+.sw-screen-center {
+  top: 82.6%;
+  left: 44%;
+  width: 12%;
+  height: 10.6%;
+  padding: 0.4cqw 0.5cqw;
+  background: rgba(2, 14, 16, 0.86);
+  border-radius: 0.25cqw;
+}
+
+.sw-log {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 1;
+  gap: 0.15cqw;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 0.5cqw;
+  list-style: none;
+}
+
+.sw-log li {
+  opacity: 0.55;
+}
+
+.sw-log li:last-child {
+  opacity: 1;
+}
+
+.sw-jumping {
+  color: #fff;
+  font-size: 0.62cqw;
+  animation: sw-blink 0.6s steps(2) infinite;
+}
+
+@keyframes sw-blink {
+  50% { opacity: 0.35; }
+}
+
+.sw-error {
+  margin: 0;
+  color: #ff9a8a;
+  font-size: 0.45cqw;
+}
+
+.sw-screen button,
+.sw-corner button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.sw-launch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2cqw;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  color: #031512;
+  font-size: 1.2cqw;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  background: #8ff3ea;
+  border: 0;
+  border-radius: 0.2cqw;
+  box-shadow: 0 0 1.2cqw rgba(80, 240, 220, 0.55);
+}
+
+.sw-launch small {
+  font-size: 0.45cqw;
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
+
+.sw-launch:hover {
+  filter: brightness(1.12);
+}
+
+.sw-plot-key {
+  align-self: flex-start;
+  padding: 0.1cqw 0.35cqw;
+  color: #f5b45a;
+  font-size: 0.45cqw;
+  background: transparent;
+  border: 1px solid rgba(245, 180, 90, 0.5);
+  border-radius: 0.15cqw;
+}
+
+.sw-plot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3cqw;
+  height: 100%;
+}
+
+.sw-plot input {
+  width: 100%;
+  padding: 0.25cqw 0.35cqw;
+  color: #dffaf7;
+  font: inherit;
+  font-size: 0.6cqw;
+  background: rgba(143, 243, 234, 0.08);
+  border: 1px solid rgba(143, 243, 234, 0.5);
+  border-radius: 0.15cqw;
+  outline: none;
+}
+
+.sw-hint {
+  color: #5fcfc4;
+  font-size: 0.42cqw;
+}
+
+/* Star-map keys on the console wings. */
+/* Kept inside 8.5%–91.5% of the art: covering a 16:10 or 3:2 screen crops
+   up to ~8% off each side, and the keys must survive that. */
+.sw-keys {
+  position: absolute;
+  top: 82.2%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3cqw;
+  width: 15.5%;
+  pointer-events: auto;
+}
+
+.sw-keys-left {
+  left: 9%;
+}
+
+.sw-keys-right {
+  right: 9%;
+}
+
+.sw-key {
+  display: grid;
+  grid-template-columns: 1.3cqw minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4cqw;
+  padding: 0.35cqw 0.5cqw;
+  color: #f8d9a8;
+  font: inherit;
+  font-size: 0.62cqw;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(#2b2217, #120e09);
+  border: 1px solid rgba(245, 180, 90, 0.55);
+  border-radius: 0.25cqw;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 160, 0.15),
+    0 0 0.6cqw rgba(245, 160, 60, 0.15);
+  transition:
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    transform 80ms ease;
+}
+
+.sw-key:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 160, 0.25),
+    0 0 1cqw rgba(245, 170, 70, 0.5);
+}
+
+.sw-key:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.sw-key:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sw-key.is-here {
+  opacity: 1;
+  color: #8ff3ea;
+  border-color: rgba(143, 243, 234, 0.6);
+  box-shadow: 0 0 0.8cqw rgba(80, 240, 220, 0.35);
+}
+
+.sw-key.is-target {
+  opacity: 1;
+  color: #fff;
+  animation: sw-blink 0.6s steps(2) infinite;
+}
+
+.sw-key-num {
+  display: grid;
+  place-items: center;
+  height: 1.3cqw;
+  color: #1a1206;
+  font-size: 0.6cqw;
+  background: #f5b45a;
+  border-radius: 0.15cqw;
+}
+
+.sw-key-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-key-era {
+  color: #c8955a;
+  font-size: 0.5cqw;
+}
+
+/* Small out-of-fiction controls, tucked into the ceiling. */
+.sw-corner {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sw-corner a,
+.sw-corner button,
+.sw-status {
+  padding: 4px 10px;
+  color: #c9c2b0;
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.sw-corner button:disabled {
+  opacity: 0.4;
+}
+
+.sw-status.status-ready {
+  color: #8ee59d;
+}
+
+.sw-keys-title {
+  color: #c8955a;
+  font-size: 0.45cqw;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sw-key.is-generated {
+  color: #c9fbf5;
+  background: linear-gradient(#11302d, #08191a);
+  border-color: rgba(143, 243, 234, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(180, 255, 245, 0.15),
+    0 0 0.6cqw rgba(80, 240, 220, 0.18);
+}
+
+.sw-key.is-generated .sw-key-num {
+  color: #04211e;
+  background: #8ff3ea;
+}
+
+.sw-key.is-generated .sw-key-era {
+  color: #5fcfc4;
+}
+
+.sw-key.is-scanning {
+  color: #5fcfc4;
+  cursor: progress;
+  background: linear-gradient(#0c1f1e, #070f10);
+  border-color: rgba(143, 243, 234, 0.25);
+  animation: sw-scan 1.2s ease-in-out infinite;
+}
+
+.sw-key.is-scanning .sw-key-num {
+  color: #04211e;
+  background: rgba(143, 243, 234, 0.4);
+}
+
+@keyframes sw-scan {
+  50% { opacity: 0.45; }
+}
+
+/* Event alert, across the top of the windshield. */
+.sw-alert {
+  position: absolute;
+  top: 19%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.8cqw;
+  padding: 0.5cqw 1.2cqw;
+  color: #ffe1c2;
+  font-size: 1.05cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: rgba(60, 12, 6, 0.72);
+  border: 1px solid rgba(255, 120, 70, 0.7);
+  border-radius: 0.3cqw;
+  box-shadow: 0 0 2cqw rgba(255, 90, 40, 0.35);
+  transform: translateX(-50%);
+  animation: sw-alert-in 240ms ease-out, sw-alert-pulse 1s ease-in-out infinite 240ms;
+}
+
+.sw-alert span {
+  padding: 0.15cqw 0.5cqw;
+  color: #2a0600;
+  font-size: 0.6cqw;
+  background: #ff8a5c;
+  border-radius: 0.15cqw;
+}
+
+@keyframes sw-alert-in {
+  from { opacity: 0; transform: translate(-50%, -0.6cqw); }
+}
+
+@keyframes sw-alert-pulse {
+  50% { box-shadow: 0 0 3.2cqw rgba(255, 90, 40, 0.6); }
+}
+
+/* VESTA's subtitles, cinema style over the lower windshield. */
+.sw-subtitle {
+  position: absolute;
+  bottom: 40%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35cqw;
+  width: min(56%, 52cqw);
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: sw-fade-in 200ms ease-out;
+}
+
+.sw-subtitle p {
+  margin: 0;
+  padding: 0.35cqw 0.9cqw;
+  color: #f4fffd;
+  font-size: 1.2cqw;
+  line-height: 1.35;
+  background: rgba(2, 10, 12, 0.6);
+  border-radius: 0.3cqw;
+  text-shadow: 0 0 0.6cqw rgba(0, 0, 0, 0.9);
+}
+
+.sw-subtitle-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4cqw;
+  color: #8ff3ea;
+  font-size: 0.6cqw;
+  letter-spacing: 0.3em;
+}
+
+.sw-subtitle-name i {
+  width: 0.5cqw;
+  height: 0.5cqw;
+  background: #8ff3ea;
+  border-radius: 50%;
+  box-shadow: 0 0 0.6cqw #8ff3ea;
+  opacity: 0.4;
+}
+
+.sw-subtitle.is-speaking .sw-subtitle-name i {
+  opacity: 1;
+  animation: sw-voice 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes sw-voice {
+  to { transform: scale(1.6); }
+}
+
+@keyframes sw-fade-in {
+  from { opacity: 0; }
+}
+
+/* VESTA's plotted routes: holo cards that slide up over the lower windshield. */
+.sw-choices {
+  position: absolute;
+  bottom: 23.5%;
+  left: 50%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9cqw;
+  width: min(62%, 60cqw);
+  transform: translateX(-50%);
+}
+
+.sw-choice {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto auto;
+  column-gap: 0.6cqw;
+  align-items: center;
+  padding: 0.7cqw 0.9cqw;
+  overflow: hidden;
+  color: #e6fffb;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(160deg, rgba(10, 48, 46, 0.78), rgba(4, 16, 18, 0.82));
+  border: 1px solid rgba(143, 243, 234, 0.45);
+  border-radius: 0.45cqw;
+  box-shadow:
+    0 0 1.4cqw rgba(80, 240, 220, 0.18),
+    inset 0 0 1.2cqw rgba(80, 240, 220, 0.08);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  animation: sw-choice-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+/* A light sweep across each card as it lands. */
+.sw-choice::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(105deg, transparent 35%, rgba(200, 255, 250, 0.22) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: sw-sweep 900ms ease-out 380ms forwards;
+  animation-delay: inherit;
+  pointer-events: none;
+}
+
+.sw-choice:hover {
+  border-color: rgba(143, 243, 234, 0.9);
+  box-shadow:
+    0 0 2.2cqw rgba(80, 240, 220, 0.4),
+    inset 0 0 1.4cqw rgba(80, 240, 220, 0.14);
+  transform: translateY(-0.25cqw);
+}
+
+.sw-choice:active {
+  transform: translateY(0);
+}
+
+.sw-choice-num {
+  grid-row: 1 / span 3;
+  display: grid;
+  place-items: center;
+  width: 1.9cqw;
+  height: 1.9cqw;
+  color: #04211e;
+  font-size: 0.95cqw;
+  background: #8ff3ea;
+  border-radius: 50%;
+  box-shadow: 0 0 0.9cqw rgba(143, 243, 234, 0.7);
+}
+
+.sw-choice-era {
+  color: #5fcfc4;
+  font-size: 0.55cqw;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sw-choice strong {
+  overflow: hidden;
+  font-size: 0.95cqw;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-choice em {
+  overflow: hidden;
+  color: #a7d8d2;
+  font-size: 0.6cqw;
+  font-style: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@keyframes sw-choice-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.2cqw) scale(0.96);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes sw-sweep {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+label.sw-mix {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  font-size: 12px;
+  gap: 6px;
+  padding: 3px 10px;
+  color: #c9c2b0;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.sw-mix input[type="range"] {
+  width: 90px;
+  padding: 0;
+  background: none;
+  border: 0;
+  accent-color: #8ff3ea;
+}
+
+.sw-mix output {
+  min-width: 3.2em;
+  color: #8ff3ea;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-choice,
+  .sw-choice::after {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-alert,
+  .sw-key.is-scanning,
+  .sw-subtitle.is-speaking .sw-subtitle-name i {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-starfield,
+  .sw-cabin-inner.is-shaking,
+  .sw-jumping,
+  .sw-key.is-target {
+    animation: none;
+  }
+}
