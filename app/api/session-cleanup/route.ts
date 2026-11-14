@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { unregisterReactorSession } from "@/lib/server/reactor-session-registry";
+import { readBoundedBody, requireLocalRequest } from "@/lib/server/local-request";
 
 export const runtime = "nodejs";
 
@@ -12,17 +12,24 @@ type CleanupRequest = {
 };
 
 export async function POST(request: Request) {
-  let body: CleanupRequest;
+  const blocked = requireLocalRequest(request, "session-cleanup", 30);
+  if (blocked) return blocked;
+
+  const payload = await readBoundedBody(request, 32 * 1024);
+  if ("error" in payload) return payload.error;
+  let body: CleanupRequest | null;
   try {
-    body = (await request.json()) as CleanupRequest;
+    body = (await payload.body.json()) as CleanupRequest;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { sessionId, jwt } = body;
+  const { sessionId, jwt } = body ?? {};
   if (
     typeof sessionId !== "string" ||
     !sessionId ||
+    sessionId === "." ||
+    sessionId === ".." ||
     sessionId.length > 200 ||
     typeof jwt !== "string" ||
     !jwt ||
@@ -42,6 +49,8 @@ export async function POST(request: Request) {
         method: "DELETE",
         headers: { Authorization: `Bearer ${jwt}` },
         cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
       },
     );
   } catch {
@@ -53,9 +62,6 @@ export async function POST(request: Request) {
 
   // Cleanup is idempotent: a missing session has already been terminated.
   if (response.ok || response.status === 404) {
-    if (process.env.NODE_ENV === "development") {
-      await unregisterReactorSession(sessionId);
-    }
     return new Response(null, { status: 204 });
   }
 

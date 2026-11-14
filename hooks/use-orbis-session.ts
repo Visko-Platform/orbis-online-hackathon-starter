@@ -4,10 +4,14 @@ import { useReactor, useReactorMessage } from "@reactor-team/js-sdk";
 import { useEffect, useRef, useState } from "react";
 
 import {
-  DOCUMENTED_RESOLUTIONS,
+  preferredOrbisResolution,
+  STABLE_RESOLUTIONS,
   type OrbisMessage,
   unwrapOrbisMessage,
 } from "@/lib/orbis";
+import { openOrbisRun, type OrbisOpeningSignals } from "@/lib/orbis-opening";
+import { orbisPromptPayload } from "@/lib/orbis-prompt";
+import { prepareOrbisReference } from "@/lib/orbis-reference";
 
 export function useOrbisSession(
   clearJwt: () => void,
@@ -26,9 +30,8 @@ export function useOrbisSession(
   const [prompt, setPrompt] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [resolution, setResolution] = useState("");
-  const [availableResolutions, setAvailableResolutions] = useState<string[]>(
-    DOCUMENTED_RESOLUTIONS,
-  );
+  const [availableResolutions, setAvailableResolutions] = useState(STABLE_RESOLUTIONS);
+  const reportedResolutions = useRef<string[]>([]);
   const [muted, setMuted] = useState(true);
   const [busy, setBusy] = useState(false);
   const [nanoBusy, setNanoBusy] = useState(false);
@@ -40,8 +43,7 @@ export function useOrbisSession(
 
   const previousStatus = useRef(status);
   const disconnecting = useRef(false);
-  const conditionsReadyResolver = useRef<(() => void) | null>(null);
-  const imageReadyResolver = useRef<(() => void) | null>(null);
+  const openingSignals = useRef<OrbisOpeningSignals>({});
   const expectsImageForRun = useRef(false);
 
   const connected = status === "ready";
@@ -55,6 +57,8 @@ export function useOrbisSession(
       setRunStarted(false);
       setPaused(false);
       setImageStatus("");
+      reportedResolutions.current = [];
+      setAvailableResolutions(STABLE_RESOLUTIONS);
     }
     previousStatus.current = status;
   }, [status]);
@@ -82,56 +86,6 @@ export function useOrbisSession(
 
     window.addEventListener("pagehide", handlePageHide);
     return () => window.removeEventListener("pagehide", handlePageHide);
-  }, [getCurrentJwt, sessionId]);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development" || !sessionId) {
-      return;
-    }
-
-    const jwt = getCurrentJwt();
-    if (!jwt) return;
-
-    let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const register = async (attempt: number) => {
-      try {
-        const response = await fetch("/api/session-registry", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, jwt }),
-        });
-        if (!response.ok) {
-          const result = (await response.json().catch(() => null)) as {
-            error?: string;
-          } | null;
-          throw new Error(
-            result?.error ?? `registry returned ${response.status}`,
-          );
-        }
-      } catch (caught) {
-        if (cancelled) return;
-        if (attempt < 5) {
-          retryTimer = setTimeout(
-            () => void register(attempt + 1),
-            attempt * 1_000,
-          );
-          return;
-        }
-        setError(
-          `Could not register Reactor session for development cleanup: ${
-            caught instanceof Error ? caught.message : String(caught)
-          }`,
-        );
-      }
-    };
-
-    void register(1);
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
   }, [getCurrentJwt, sessionId]);
 
   const runAction = async (action: () => Promise<unknown>) => {
@@ -182,26 +136,27 @@ export function useOrbisSession(
     const message = unwrapOrbisMessage(raw);
 
     if (message.type === "conditions_ready") {
-      conditionsReadyResolver.current?.();
-      conditionsReadyResolver.current = null;
+      openingSignals.current.conditions?.();
     }
 
     if (message.type === "state" && message.has_image === true) {
-      imageReadyResolver.current?.();
-      imageReadyResolver.current = null;
+      openingSignals.current.image?.();
     }
 
     if (message.type === "state" && message.available_resolutions) {
       const reported = message.available_resolutions.map(String);
-      if (reported.length) {
+      if (reported.length && reported.join() !== reportedResolutions.current.join()) {
+        reportedResolutions.current = reported;
         setAvailableResolutions(reported);
-        setResolution((current) =>
-          !current || reported.includes(current) ? current : "",
-        );
       }
     }
 
-    if (!disconnecting.current) updateRunState(message);
+    if (!disconnecting.current) {
+      if (message.type === "generation_started" || (message.type === "state" && message.started === true)) {
+        openingSignals.current.started?.();
+      }
+      updateRunState(message);
+    }
 
     if (message.type === "command_error") {
       setError(
@@ -215,100 +170,45 @@ export function useOrbisSession(
     }
   });
 
-  const waitForSignal = (
-    resolver: { current: (() => void) | null },
-    signalName: string,
-  ) => {
-    let timeout: ReturnType<typeof setTimeout>;
-    const promise = new Promise<void>((resolve, reject) => {
-      timeout = setTimeout(() => {
-        resolver.current = null;
-        reject(new Error(`Timed out waiting for Orbis ${signalName}.`));
-      }, 15_000);
-      resolver.current = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-    });
-    return {
-      promise,
-      cancel: () => {
-        clearTimeout(timeout);
-        resolver.current = null;
-      },
-    };
-  };
-
-  // Shared by the regular form and the Nano Banana one-click example.
-  const startGeneration = async (
-    startImage: File | null,
-    runPrompt: string,
-  ) => {
+  const startGeneration = async (startImage: File | null, runPrompt: string) => {
     if (!runPrompt.trim()) throw new Error("Enter a prompt before starting.");
     expectsImageForRun.current = Boolean(startImage);
-
-    if (startImage) {
-      const uploaded = await uploadFile(startImage, { name: startImage.name });
-      const imageReady = waitForSignal(imageReadyResolver, "state.has_image");
-      const rawReply = await sendCommand("set_image", { image: uploaded });
-      if (!rawReply) {
-        imageReady.cancel();
-        throw new Error("Orbis did not accept the uploaded start image.");
-      }
-
-      const reply = unwrapOrbisMessage(rawReply);
-      if (reply.type === "command_error") {
-        imageReady.cancel();
-        throw new Error(`set_image: ${reply.reason || "rejected"}`);
-      }
-      if (reply.type !== "image_accepted") {
-        imageReady.cancel();
-        throw new Error(
-          `Expected image_accepted from Orbis, received ${reply.type || "an unknown reply"}.`,
-        );
-      }
-
-      await imageReady.promise;
-
-      const dimensions =
-        reply.width && reply.height ? ` (${reply.width}×${reply.height})` : "";
-      setImageStatus(`Orbis accepted image${dimensions}`);
-      setEvents((current) => ["image_accepted", ...current].slice(0, 8));
-    }
-
-    if (resolution) await sendCommand("set_resolution", { resolution });
-
-    const conditionsReady = waitForSignal(
-      conditionsReadyResolver,
-      "conditions_ready",
-    );
-    const promptReply = await sendCommand("set_prompt", {
-      prompt: runPrompt.trim(),
+    const available = reportedResolutions.current.length ? reportedResolutions.current : STABLE_RESOLUTIONS;
+    await openOrbisRun({
+      sendCommand,
+      uploadFile,
+      signals: openingSignals.current,
+      image: startImage,
+      prompt: runPrompt,
+      resolution: available.includes(resolution) ? resolution : preferredOrbisResolution(available),
+      imageAccepted: ({ width, height }) => {
+        const dimensions = width && height ? ` (${width}×${height})` : "";
+        setImageStatus(`Orbis accepted image${dimensions}`);
+        setEvents((current) => ["image_accepted", ...current].slice(0, 8));
+      },
+      conditionsReady: () => setEvents((current) => ["conditions_ready", ...current].slice(0, 8)),
     });
-    if (!promptReply) {
-      conditionsReady.cancel();
-      throw new Error("Orbis did not accept the prompt.");
-    }
-
-    const promptMessage = unwrapOrbisMessage(promptReply);
-    if (promptMessage.type === "command_error") {
-      conditionsReady.cancel();
-      throw new Error(`set_prompt: ${promptMessage.reason || "rejected"}`);
-    }
-
-    await conditionsReady.promise;
-    setEvents((current) => ["conditions_ready", ...current].slice(0, 8));
-    await sendCommand("start", {});
-    setRunStarted(true);
-    setPaused(false);
   };
 
   const selectImage = (nextImage: File | null) => {
+    if (nextImage) void prepareOrbisReference(nextImage).catch(() => {});
     setImage(nextImage);
     setImageStatus("");
   };
 
   const startRun = () => runAction(() => startGeneration(image, prompt));
+
+  const ensureConnected = async () => {
+    if (connected) return;
+    clearJwt();
+    await connect();
+  };
+
+  const startScene = (startImage: File | null, text: string) => runAction(async () => {
+    if (!text.trim()) throw new Error("Enter a prompt before starting.");
+    await ensureConnected();
+    await startGeneration(startImage, text);
+  });
 
   const startFromNanoOutput = async (
     editedImage: File,
@@ -319,10 +219,15 @@ export function useOrbisSession(
     await runAction(() => startGeneration(editedImage, groundedPrompt));
   };
 
-  const steer = () =>
+  const sendSteeringPrompt = async (payload: ReturnType<typeof orbisPromptPayload>) => {
+    const reply = unwrapOrbisMessage(await sendCommand("set_prompt", payload));
+    if (reply?.type !== "prompt_accepted") throw new Error(reply?.reason || "Orbis did not accept the edit.");
+  };
+
+  const steer = (text: string = prompt) =>
     runAction(async () => {
-      if (!prompt.trim()) throw new Error("Enter a prompt before steering.");
-      await sendCommand("set_prompt", { prompt: prompt.trim() });
+      if (!text.trim()) throw new Error("Enter a prompt before steering.");
+      await sendSteeringPrompt(orbisPromptPayload(text, "steering"));
     });
 
   const disconnectSession = async () => {
@@ -336,21 +241,7 @@ export function useOrbisSession(
     );
     try {
       const disconnected = await runAction(() => disconnect());
-      if (disconnected) {
-        if (process.env.NODE_ENV === "development" && sessionId) {
-          try {
-            await fetch("/api/session-registry", {
-              method: "DELETE",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sessionId }),
-            });
-          } catch {
-            // A stale registry entry is harmless: the next sweep gets a 404
-            // from Reactor and removes it.
-          }
-        }
-        clearJwt();
-      }
+      if (disconnected) clearJwt();
     } finally {
       disconnecting.current = false;
     }
@@ -366,20 +257,24 @@ export function useOrbisSession(
     prompt,
     image,
     imageStatus,
-    resolution,
+    resolution: availableResolutions.includes(resolution) ? resolution : "",
+    preferredResolution: preferredOrbisResolution(availableResolutions),
     availableResolutions,
     error,
     events,
-    connectSession: () => runAction(() => connect()),
+    connectSession: () => runAction(ensureConnected),
     disconnectSession,
     toggleMuted: () => setMuted((current) => !current),
     setPrompt,
     selectImage,
     setResolution,
     startRun,
+    startScene,
     startFromNanoOutput,
     setNanoBusy,
-    steer,
+    steer: () => steer(),
+    steerWithPrompt: steer,
+    sendSteeringPrompt,
     pause: () => runAction(() => sendCommand("pause", {})),
     resume: () => runAction(() => sendCommand("resume", {})),
     reset: () => runAction(() => sendCommand("reset", {})),
