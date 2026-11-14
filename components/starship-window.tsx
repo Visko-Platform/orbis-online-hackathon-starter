@@ -39,8 +39,13 @@ import {
   JUMP_PROMPT,
   ORIGIN,
   plottedCourse,
-  promptFor,
-  scenePrompt,
+  composePrompt,
+  type Helm,
+  MISSION_STAGES,
+  MISSIONS,
+  type Mission,
+  sceneOf,
+  THROTTLES,
 } from "@/lib/starship";
 
 type Phase = "docked" | "launching" | "flying" | "jumping";
@@ -48,7 +53,16 @@ type Phase = "docked" | "launching" | "flying" | "jumping";
 type WorldEvent = { title: string; view: string; log: string };
 
 type DirectorPlan = {
-  options?: { name: string; era: string; teaser: string; view: string; log: string }[];
+  options?: {
+    name: string;
+    era: string;
+    teaser: string;
+    view: string;
+    log: string;
+    mission?: boolean;
+    clue?: string;
+    finale?: boolean;
+  }[];
   event?: WorldEvent | null;
   error?: string;
 };
@@ -62,6 +76,12 @@ const SCENE_BEAT_MS = 6_500;
 const SEE_TIMEOUT_MS = 15_000;
 /** VESTA's video feed: one frame this often. */
 const VESTA_FRAME_MS = 1_000;
+
+/** One postcard per world for the end-of-flight captain's log. */
+type Postcard = { id: string; name: string; era: string; log: string; image: string; quote: string; at: number };
+
+/** Bank auto-levels after this long. */
+const BANK_HOLD_MS = 9_000;
 
 /** Who is steering Orbis right now. The scene driver only acts when "free". */
 type SceneLock = "free" | "launch" | "jump" | "event";
@@ -131,6 +151,12 @@ function Cockpit({
   const [now, setNow] = useState(() => Date.now());
   /** Two independent faders (0–1): Orbis's world sound and VESTA's voice. */
   const [worldLevel, setWorldLevel] = useState(0.8);
+  const [helm, setHelm] = useState<Helm>({ throttle: "cruise", bank: 0 });
+  const [mission, setMission] = useState<Mission>(MISSIONS[0]);
+  const [missionStage, setMissionStage] = useState(1);
+  const [missionDone, setMissionDone] = useState(false);
+  const [postcards, setPostcards] = useState<Postcard[]>([]);
+  const [showReel, setShowReel] = useState(false);
   const [vestaLevel, setVestaLevel] = useState(1);
 
   const stage = useRef<HTMLDivElement>(null);
@@ -143,7 +169,15 @@ function Cockpit({
   const eventTimer = useRef<number | null>(null);
   const warnedLowDrive = useRef(false);
   const sceneLock = useRef<SceneLock>("free");
-  const lastPrompt = useRef("");
+  /** Scene text (no motion) Orbis is currently showing; the driver continues it. */
+  const lastScene = useRef("");
+  const helmRef = useRef(helm);
+  helmRef.current = helm;
+  const missionRef = useRef({ mission, stage: missionStage, done: missionDone });
+  missionRef.current = { mission, stage: missionStage, done: missionDone };
+  const bankTimer = useRef<number | null>(null);
+  /** Dev layout preview: flying without a session must not auto-dock. */
+  const previewing = useRef(false);
   const beats = useRef(0);
   const lastSpokeAt = useRef(0);
 
@@ -159,10 +193,10 @@ function Cockpit({
     copilot.current?.update(text);
   };
 
-  /** Steer Orbis and remember the prompt the scene driver continues from. */
-  const steer = async (prompt: string) => {
-    const ok = await session.steerTo(prompt);
-    if (ok) lastPrompt.current = prompt;
+  /** Steer Orbis to a scene, with the helm's motion composed in. */
+  const steer = async (scene: string) => {
+    const ok = await session.steerTo(composePrompt(scene, helmRef.current));
+    if (ok) lastScene.current = scene;
     return ok;
   };
 
@@ -286,7 +320,7 @@ function Cockpit({
         mode: "evolve",
         frame,
         world: `${place.name} (${place.era}): ${place.view}`,
-        lastPrompt: lastPrompt.current,
+        lastPrompt: lastScene.current,
       });
       busy = false;
       if (!beat?.prompt || world.current !== thisWorld || sceneLock.current !== "free") return;
@@ -300,6 +334,42 @@ function Cockpit({
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.runStarted]);
+
+  // ---- Helm: the cockpit and engine respond instantly; the world follows
+  // when the new motion is composed into the prompt (6–10 s later).
+  useEffect(() => {
+    stage.current?.style.setProperty("--bank", String(helm.bank));
+    audio.current?.setThrottle(THROTTLES.indexOf(helm.throttle));
+    if (phase !== "flying" || sceneLock.current !== "free" || !lastScene.current) return;
+    const timer = window.setTimeout(() => void steer(lastScene.current), 500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [helm]);
+
+  const setThrottle = (offset: -1 | 1) =>
+    setHelm((current) => {
+      const index = THROTTLES.indexOf(current.throttle) + offset;
+      if (index < 0 || index >= THROTTLES.length) return current;
+      return { ...current, throttle: THROTTLES[index] };
+    });
+  const bank = (direction: -1 | 1) => {
+    if (bankTimer.current) window.clearTimeout(bankTimer.current);
+    setHelm((current) => ({ ...current, bank: current.bank === direction ? 0 : direction }));
+    bankTimer.current = window.setTimeout(
+      () => setHelm((current) => ({ ...current, bank: 0 })),
+      BANK_HOLD_MS,
+    );
+  };
+
+  // ---- Postcards: VESTA's words right after an arrival become its caption.
+  useEffect(() => {
+    if (!caption) return;
+    setPostcards((current) => {
+      const last = current[current.length - 1];
+      if (!last || Date.now() - last.at > 12_000) return current;
+      return [...current.slice(0, -1), { ...last, quote: caption }];
+    });
+  }, [caption]);
 
   // ---- Drive clock: every session is capped at five minutes.
   useEffect(() => {
@@ -339,11 +409,30 @@ function Cockpit({
     setPhase("flying");
     addLog(`[${dest.era}] ${dest.log}`);
     sceneLock.current = "free";
+    const image = captureFrame(640);
+    if (image) {
+      setPostcards((current) => [
+        ...current,
+        { id: `${dest.id}-${Date.now()}`, name: dest.name, era: dest.era, log: dest.log, image, quote: "", at: Date.now() },
+      ]);
+    }
+
+    const { mission: goal, stage: currentStage } = missionRef.current;
+    let missionNote = "";
+    if (dest.finale) {
+      setMissionDone(true);
+      setAlert("Mission complete");
+      missionNote = ` This is the finale of our mission "${goal.title}" (${goal.goal}). Deliver the payoff in two sentences: what we found here and what it means.`;
+    } else if (dest.mission) {
+      setMissionStage((stage) => Math.min(MISSION_STAGES, stage + 1));
+      missionNote = ` This world was on the mission trail (we came for: ${dest.clue}). Mention the clue we find here in one breath.`;
+    }
     tellVesta(
       how === "launch"
-        ? `Launch complete. We are at ${dest.name} (${dest.era}). Greet the captain and the room, and say what you see outside.`
-        : `Arrived at ${dest.name} (${dest.era}). Say what you see outside.`,
+        ? `Launch complete. We are at ${dest.name} (${dest.era}). Greet the captain and the room, say what you see outside, and announce our mission "${goal.title}": ${goal.goal}`
+        : `Arrived at ${dest.name} (${dest.era}). Say what you see outside.${missionNote}`,
     );
+    const stageForScan = dest.mission ? Math.min(MISSION_STAGES, currentStage + 1) : currentStage;
 
     void fetch("/api/director", {
       method: "POST",
@@ -351,6 +440,14 @@ function Cockpit({
       body: JSON.stringify({
         world: { name: dest.name, era: dest.era, view: dest.view },
         visited: visitedRef.current,
+        mission: missionRef.current.done
+          ? undefined
+          : {
+              title: missionRef.current.mission.title,
+              goal: missionRef.current.mission.goal,
+              stage: stageForScan,
+              stages: MISSION_STAGES,
+            },
       }),
     })
       .then(async (response) => {
@@ -366,6 +463,9 @@ function Cockpit({
             view: option.view,
             log: option.log,
             generated: true,
+            mission: Boolean(option.mission) && !missionRef.current.done,
+            clue: option.clue,
+            finale: Boolean(option.finale) && Boolean(option.mission) && !missionRef.current.done,
           })),
         );
         addLog("Scan complete: new routes plotted.");
@@ -402,7 +502,7 @@ function Cockpit({
     if (world.current !== thisWorld || sceneLock.current !== "free") return;
     // Send it to Orbis silently; only raise the alarm once it's on screen.
     sceneLock.current = "event";
-    const ok = await steer(scenePrompt(event.view));
+    const ok = await steer(event.view);
     if (!ok || world.current !== thisWorld) {
       if (world.current === thisWorld) sceneLock.current = "free";
       return;
@@ -431,8 +531,14 @@ function Cockpit({
   const launch = (into: Destination = ORIGIN) => {
     if (phase !== "docked") return;
     opening.current = into;
+    previewing.current = false;
     visitedRef.current = [];
     setVisited([]);
+    setPostcards([]);
+    setShowReel(false);
+    setMission(MISSIONS[Math.floor(Math.random() * MISSIONS.length)]);
+    setMissionStage(1);
+    setMissionDone(false);
     setPhase("launching");
     setTarget(into === ORIGIN ? null : into);
     addLog(into === ORIGIN ? "Ignition…" : `Ignition. Plotting straight for ${into.name}…`);
@@ -440,6 +546,7 @@ function Cockpit({
     audio.current ??= new CockpitAudio();
     audio.current.setMuted(false);
     audio.current.start();
+    audio.current.setThrottle(THROTTLES.indexOf(helmRef.current.throttle));
     if (session.muted) session.toggleMuted();
 
     copilot.current?.close();
@@ -475,10 +582,21 @@ function Cockpit({
       await session.setAudioPrompt("");
       sceneLock.current = "launch";
       const flight = voyage.current;
-      const ok = await session.startWith(null, promptFor(into));
+      // Image-anchored launch: Orbis holds composition far better from a
+      // frame than from text alone (set_image only works at the start).
+      let opener: File | null = null;
+      if (into.opener) {
+        try {
+          const blob = await fetch(into.opener).then((response) => response.blob());
+          opener = new File([blob], `${into.id}.jpg`, { type: blob.type || "image/jpeg" });
+        } catch {
+          opener = null;
+        }
+      }
+      const ok = await session.startWith(opener, composePrompt(sceneOf(into), helmRef.current));
       starting.current = false;
       if (ok) {
-        lastPrompt.current = promptFor(into);
+        lastScene.current = sceneOf(into);
         await waitUntilSeen(into.view, () => voyage.current === flight);
         if (voyage.current !== flight) return;
         firePulse("arrive");
@@ -496,7 +614,7 @@ function Cockpit({
 
   // ---- The flight ends when the session does (dock, error, or 5:00).
   useEffect(() => {
-    if ((phase === "flying" || phase === "jumping") && !session.connected) {
+    if ((phase === "flying" || phase === "jumping") && !session.connected && !previewing.current) {
       voyage.current += 1;
       world.current += 1;
       sceneLock.current = "free";
@@ -507,6 +625,7 @@ function Cockpit({
       setPlotting(false);
       setPhase("docked");
       addLog("Flight ended. Pick a destination to fly again.");
+      window.setTimeout(() => setShowReel(true), 4_000);
       tellVesta("The drive has shut down and the flight is over. Say goodbye to the room.");
       const vesta = copilot.current;
       const engine = audio.current;
@@ -543,7 +662,7 @@ function Cockpit({
     if (intoJump) await waitChunks(1, 2_500);
     if (!stillFlying()) return;
 
-    const arriving = await steer(promptFor(dest));
+    const arriving = await steer(sceneOf(dest));
     if (!stillFlying()) return;
     if (!arriving) {
       sceneLock.current = "free";
@@ -627,8 +746,38 @@ function Cockpit({
     }
     tellVesta("Systems check before launch. Introduce yourself to the room in one line.");
   };
-  const keys = useRef({ press, launch, rehearse, rehearseVesta, keyList, phase });
-  keys.current = { press, launch, rehearse, rehearseVesta, keyList, phase };
+  // Dev only: F previews the flying layout, R the captain's log, without
+  // Orbis. (Jumps from the preview fail safely: there is no session.)
+  const previewLayout = async (what: "flying" | "reel") => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (what === "flying") {
+      previewing.current = true;
+      setPhase("flying");
+      setHere(DESTINATIONS[3]);
+      setScanned([
+        { ...DESTINATIONS[4], id: "preview-1", generated: true, teaser: "Ice that remembers the sun", mission: true, clue: "the signal's echo under the ice" },
+        { ...DESTINATIONS[5], id: "preview-2", generated: true, teaser: "Where the light goes to rest" },
+        { ...DESTINATIONS[0], id: "preview-3", generated: true, teaser: "Footprints older than mountains" },
+      ]);
+      return;
+    }
+    const cards = await Promise.all(
+      [ORIGIN, ...DESTINATIONS.slice(0, 4)].map(async (dest, index) => {
+        const blob = await fetch(dest.opener ?? "").then((response) => response.blob());
+        const image = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+          reader.readAsDataURL(blob);
+        });
+        return { id: `preview-${index}`, name: dest.name, era: dest.era, log: dest.log, image, quote: "", at: 0 };
+      }),
+    );
+    setPostcards(cards);
+    setShowReel(true);
+  };
+
+  const keys = useRef({ press, launch, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout });
+  keys.current = { press, launch, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement | null)?.tagName === "INPUT") {
@@ -637,7 +786,14 @@ function Cockpit({
       }
       const current = keys.current;
       const key = event.key.toLowerCase();
-      if (/^[1-6]$/.test(key)) current.press(current.keyList[Number(key) - 1] ?? null);
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault();
+        current.setThrottle(event.key === "ArrowUp" ? 1 : -1);
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        current.bank(event.key === "ArrowLeft" ? -1 : 1);
+      } else if (key === "escape") setShowReel(false);
+      else if (/^[1-6]$/.test(key)) current.press(current.keyList[Number(key) - 1] ?? null);
       else if (key === "p" && current.phase === "flying") {
         event.preventDefault();
         setPlotting(true);
@@ -645,6 +801,8 @@ function Cockpit({
       else if (key === "j") current.rehearse("jump");
       else if (key === "a") current.rehearse("arrive");
       else if (key === "v") void current.rehearseVesta();
+      else if (key === "f") void current.previewLayout("flying");
+      else if (key === "r") void current.previewLayout("reel");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -686,10 +844,13 @@ function Cockpit({
               <button
                 key={dest.id}
                 type="button"
-                className="sw-choice"
+                className={`sw-choice ${dest.mission ? "is-mission" : ""}`}
                 style={{ animationDelay: `${index * 140}ms` }}
                 onClick={() => void jump(dest)}
               >
+                {dest.mission && (
+                  <span className="sw-choice-badge">{dest.finale ? "Finale" : "Mission"}</span>
+                )}
                 <span className="sw-choice-num">{index + 1}</span>
                 <span className="sw-choice-era">{dest.era}</span>
                 <strong>{dest.name}</strong>
@@ -794,7 +955,7 @@ function Cockpit({
                     <button
                       key={dest.id}
                       type="button"
-                      className={`sw-key ${dest.generated ? "is-generated" : ""} ${isTarget ? "is-target" : ""}`}
+                      className={`sw-key ${dest.generated ? "is-generated" : ""} ${dest.mission ? "is-mission" : ""} ${isTarget ? "is-target" : ""}`}
                       disabled={!docked && !flying && !isTarget}
                       title={dest.teaser ?? dest.log}
                       onClick={() => press(dest)}
@@ -809,7 +970,91 @@ function Cockpit({
             ))}
           </div>
         </div>
+
+        {!docked && (
+          <div className="sw-helm" aria-label="Helm">
+            <span className="sw-label">Helm</span>
+            <div className="sw-throttle">
+              <button type="button" aria-label="Throttle up" onClick={() => setThrottle(1)}>
+                ▲
+              </button>
+              <ol>
+                {[...THROTTLES].reverse().map((throttle) => (
+                  <li key={throttle} className={throttle === helm.throttle ? "is-on" : ""}>
+                    {throttle}
+                  </li>
+                ))}
+              </ol>
+              <button type="button" aria-label="Throttle down" onClick={() => setThrottle(-1)}>
+                ▼
+              </button>
+            </div>
+            <div className="sw-bank">
+              <button
+                type="button"
+                className={helm.bank === -1 ? "is-on" : ""}
+                onClick={() => bank(-1)}
+              >
+                ◀ Bank
+              </button>
+              <button
+                type="button"
+                className={helm.bank === 1 ? "is-on" : ""}
+                onClick={() => bank(1)}
+              >
+                Bank ▶
+              </button>
+            </div>
+            <span className="sw-hint">↑↓ throttle · ←→ bank</span>
+          </div>
+        )}
+
+        {!docked && (
+          <div className={`sw-mission ${missionDone ? "is-done" : ""}`}>
+            <span className="sw-label">Mission</span>
+            <strong>{mission.title}</strong>
+            <div className="sw-pips" aria-label={`Stage ${missionStage} of ${MISSION_STAGES}`}>
+              {Array.from({ length: MISSION_STAGES }, (_, index) => (
+                <i
+                  key={index}
+                  className={
+                    index < (missionDone ? MISSION_STAGES : missionStage - 1) ? "is-on" : ""
+                  }
+                />
+              ))}
+            </div>
+            <p>{missionDone ? "Complete. Explore freely." : mission.goal}</p>
+          </div>
+        )}
       </div>
+
+      {showReel && postcards.length > 0 && (
+        <div className="sw-reel" role="dialog" aria-label="Captain's log">
+          <header>
+            <span className="sw-label">Captain&apos;s log</span>
+            <h2>
+              {mission.title}
+              {missionDone ? " · mission complete" : ""}
+            </h2>
+          </header>
+          <div className="sw-reel-grid">
+            {postcards.map((card, index) => (
+              <figure key={card.id} style={{ animationDelay: `${index * 140}ms` }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`data:image/jpeg;base64,${card.image}`} alt={card.name} />
+                <figcaption>
+                  <span>{card.era}</span>
+                  <strong>{card.name}</strong>
+                  <em>{card.quote || card.log}</em>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          <button type="button" onClick={() => setShowReel(false)}>
+            Close (Esc)
+          </button>
+        </div>
+      )}
 
       <nav className="sw-corner">
         <Link href="/">← Starter</Link>
@@ -824,6 +1069,11 @@ function Cockpit({
         >
           {session.muted ? "Sound: off" : "Sound: on"}
         </button>
+        {postcards.length > 0 && (
+          <button type="button" onClick={() => setShowReel(true)}>
+            Log ({postcards.length})
+          </button>
+        )}
         <Fader label="World" value={worldLevel} onChange={setWorldLevel} />
         <Fader label="VESTA" value={vestaLevel} onChange={setVestaLevel} />
         {session.connected && (

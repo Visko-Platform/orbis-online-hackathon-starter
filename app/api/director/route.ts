@@ -24,16 +24,25 @@ Given the current world and the voyage so far, return:
    a time ripple). It must change the view without leaving the place. Return
    it about two times in three; otherwise return null.
 
-Every "view" is a description of what is straight ahead while drifting slowly
-forward through it: landscape, sky, light, motion, one or two striking details.
-40 words max. Never mention a cockpit, window, ship, aircraft, vehicle, camera,
-or people looking at the camera. Names under 26 characters. Eras like
+Every "view" describes the world straight ahead in LAYERS, as complete
+sentences: what is close below in the foreground, what fills the midground,
+and one named, striking landmark on the far horizon, plus sky and light.
+Rich, concrete, specific. 45 words max. Describe the scene only, never camera
+motion (that is added separately). Never mention a cockpit, window, ship,
+aircraft, vehicle, camera, or people looking at the camera.
+
+MISSION: the voyage has a goal (given below) and a stage. Exactly one of the
+three options must carry the mission forward ("mission": true), with "clue":
+what the crew hopes to find there (under 14 words). The other two are
+detours ("mission": false, "clue": ""). If this is the final stage, the
+mission option is the FINALE ("finale": true): the place where the goal is
+resolved, spectacular and emotionally satisfying. Names under 26 characters. Eras like
 "66,000,000 BC", "1350 AD", "2471 AD", "Year 40,000". Logs are one terse ship's
 log line in a dry, competent voice (under 16 words). Teasers are 6 words max.`;
 
 const VIEW = {
   type: Type.STRING,
-  description: "What is straight ahead, drifting forward. 40 words max.",
+  description: "The world ahead in layers: foreground, midground, a landmark on the horizon. 45 words max.",
 };
 
 const SCHEMA = {
@@ -51,8 +60,11 @@ const SCHEMA = {
           teaser: { type: Type.STRING },
           view: VIEW,
           log: { type: Type.STRING },
+          mission: { type: Type.BOOLEAN },
+          clue: { type: Type.STRING },
+          finale: { type: Type.BOOLEAN },
         },
-        required: ["name", "era", "teaser", "view", "log"],
+        required: ["name", "era", "teaser", "view", "log", "mission", "clue", "finale"],
       },
     },
     event: {
@@ -78,6 +90,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     world?: { name?: string; era?: string; view?: string };
     visited?: string[];
+    mission?: { title?: string; goal?: string; stage?: number; stages?: number };
   } | null;
   const world = body?.world;
   if (!world?.name || !world.view) {
@@ -95,6 +108,9 @@ export async function POST(request: Request) {
             `Current world: ${world.name} (${world.era ?? "unknown era"})`,
             `What it looks like: ${String(world.view).slice(0, 600)}`,
             `Visited so far: ${visited.join("; ") || "nothing yet"}`,
+            body?.mission?.goal
+              ? `Mission: ${String(body.mission.title ?? "").slice(0, 80)}: ${String(body.mission.goal).slice(0, 300)}\nMission stage: ${Number(body.mission.stage ?? 1)} of ${Number(body.mission.stages ?? 4)}${Number(body.mission.stage) >= Number(body.mission.stages ?? 4) ? " (FINAL STAGE: the mission option must be the finale)" : ""}`
+              : "Mission: none",
           ].join("\n"),
         },
       ],

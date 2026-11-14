@@ -11,6 +11,10 @@ export class CockpitAudio {
   private engineGain: GainNode;
   private engineFilter: BiquadFilterNode;
   private oscillators: OscillatorNode[] = [];
+  /** Engine oscillator base pitches, and the throttle's pitch multiplier. */
+  private basePitch: number[] = [];
+  private pitch = 1;
+  private cutoff = 220;
   private noise: AudioBufferSourceNode;
 
   constructor() {
@@ -43,6 +47,7 @@ export class CockpitAudio {
       osc.connect(gain).connect(this.engineFilter);
       osc.start();
       this.oscillators.push(osc);
+      this.basePitch.push(frequency);
     }
 
     // Slow wobble on the filter so the hum breathes.
@@ -75,6 +80,17 @@ export class CockpitAudio {
     this.engineGain.gain.setTargetAtTime(0.16, now, 0.8);
   }
 
+  /** Throttle 0–3 (reverse, drift, cruise, boost): engine pitch and brightness. */
+  setThrottle(level: number) {
+    const now = this.context.currentTime;
+    this.pitch = [0.9, 0.8, 1, 1.4][level] ?? 1;
+    this.cutoff = [240, 170, 220, 420][level] ?? 220;
+    this.engineFilter.frequency.setTargetAtTime(this.cutoff, now, 0.6);
+    this.oscillators.slice(0, 3).forEach((osc, index) => {
+      osc.frequency.setTargetAtTime(this.basePitch[index] * this.pitch, now, 0.6);
+    });
+  }
+
   setMuted(muted: boolean) {
     this.master.gain.setTargetAtTime(muted ? 0 : 0.9, this.context.currentTime, 0.05);
   }
@@ -89,9 +105,9 @@ export class CockpitAudio {
     filter.cancelScheduledValues(now);
     filter.setValueAtTime(filter.value, now);
     filter.linearRampToValueAtTime(900, now + 1.2);
-    filter.setTargetAtTime(220, now + 1.4, 0.6);
-    for (const osc of this.oscillators.slice(0, 3)) {
-      const base = osc.frequency.value;
+    filter.setTargetAtTime(this.cutoff, now + 1.4, 0.6);
+    for (const [index, osc] of this.oscillators.slice(0, 3).entries()) {
+      const base = this.basePitch[index] * this.pitch;
       osc.frequency.cancelScheduledValues(now);
       osc.frequency.setValueAtTime(base, now);
       osc.frequency.linearRampToValueAtTime(base * 1.8, now + 1.2);

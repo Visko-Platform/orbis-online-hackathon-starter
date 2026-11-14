@@ -13,17 +13,17 @@ export const runtime = "nodejs";
 
 const EVOLVE = `You keep a real-time video model's shot alive. You see the
 current frame of a continuous forward-drifting shot, the world it is meant to
-be, and the last prompt sent. Write the next prompt, used for the next ~6
-seconds.
+be, and the last prompt sent. Write the scene text for the next ~6 seconds.
 
-Rules:
-- Same world, same continuous shot: start by re-establishing the setting and
-  what is visible now, then add ONE new development coming into view ahead
-  (a landmark, creature, weather change, light change, structure), drifting
-  steadily forward.
-- Describe only what is straight ahead. Never mention a cockpit, window,
-  ship, aircraft, vehicle or camera. No cuts.
-- 45–70 words, present tense, concrete visual language.
+Write it the way the video model's own curated presets are written:
+- Open by re-establishing continuity explicitly: "The same <world>, the same
+  <key feature>…", describing what is visible now.
+- Then ONE new development coming into view ahead: a landmark, creature,
+  weather or light change, a structure. Keep it plausible for this world.
+- Layer the detail: foreground close below, midground, far background.
+- Describe the SCENE only, not camera motion (motion is added separately).
+- Never mention a cockpit, window, ship, aircraft, vehicle or camera.
+- 40–60 words, present tense, concrete visual language.
 Also return "seen": one short sentence (under 14 words) describing what the
 frame actually shows right now.`;
 
