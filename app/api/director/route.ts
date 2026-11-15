@@ -19,17 +19,30 @@ Given the current world and the voyage so far, return:
    current world: a thread pulled from it (its past, its future, a rumour, a
    signal, a strange neighbour). Mix eras and scales: at least one surprising
    leap. Never repeat a world already visited.
-2. "event": an EMERGENCY that hits AT the current world a little after
-   arrival and forces the captain to decide (a storm front, a creature
-   surfacing beneath the ship, a collapsing structure, hostile signal lock, a
-   time rip opening ahead). It must change the view without leaving the place.
+2. "event": an EMERGENCY that hits AT the current world shortly after
+   arrival and forces the captain to decide. Make it SPECTACULAR and
+   catastrophic, a disaster-movie moment that fills the view ahead: a
+   meteor storm raining fireballs, a towering tornado tearing across the
+   land, a massive explosion and shockwave, walls of fire, a volcanic
+   eruption hurling lava bombs, a tidal wave rising, lightning storms
+   shattering the sky, a colossal structure collapsing, a gigantic creature
+   bursting out of the ground or sea, an ice shelf calving, a solar flare.
+   Fit it to the world (a sandstorm-tornado on the dunes, a sea monster at
+   Atlantis, falling debris in a city). It must be HUGE, bright, in motion
+   and unmistakable in the view straight ahead (it will be rendered by a
+   video model), and it stays at this place (don't leave the world). If the
+   captain's most recent decision was made here, ESCALATE: the next
+   emergency should be bigger and wilder than the last. Vary the kind of
+   disaster across the voyage.
    Always return one. Give it exactly two "choices", which the captain picks
    by clicking a button:
      - choices[0]: the CAUTIOUS response (e.g. "Pull up", "Shields up").
-     - choices[1]: the BOLD response (e.g. "Dive through", "Follow it").
+     - choices[1]: the BOLD response (e.g. "Dive through", "Ride the blast").
    Each choice: "label" (2–3 words, imperative, fits on a button), "outcome"
-   (the new view after acting, same rules as every view), "log" (terse ship's
-   log line of what happened), "points" (cautious 100–200, bold 250–400).
+   (the new view after acting: still dramatic and in motion, same rules as
+   every view; the bold outcome is the more spectacular one), "log" (terse
+   ship's log line of what happened), "points" (cautious 100–200, bold
+   250–400).
 
 Every "view" describes the world straight ahead in LAYERS, as complete
 sentences: what is close below in the foreground, what fills the midground,
