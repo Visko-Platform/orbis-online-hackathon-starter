@@ -26,7 +26,11 @@ type CopilotEvents = {
   onTool?: (name: string, args: Record<string, unknown>) => string | Promise<string>;
   /** What the captain said (live transcription while they talk). */
   onHeard?: (text: string) => void;
+  /** Link state for the cockpit's status light. */
+  onStatus?: (status: CopilotStatus) => void;
 };
+
+export type CopilotStatus = "connecting" | "live" | "reconnecting" | "offline";
 
 // Microphone tap: posts raw mono samples from the audio thread.
 const TAP_WORKLET = `
@@ -68,7 +72,19 @@ export class Copilot {
   private reconnecting = false;
   private failures = 0;
 
+  private status(next: CopilotStatus) {
+    if (!this.closed) this.events.onStatus?.(next);
+  }
+
+  /** Captain asked to retry (status light clicked while offline). */
+  retry() {
+    if (this.closed || this.session || this.reconnecting) return;
+    this.failures = 0;
+    void this.reconnect();
+  }
+
   async connect() {
+    if (!this.reconnecting) this.status("connecting");
     void this.context.resume();
     const response = await fetch("/api/live-token", {
       method: "POST",
@@ -94,15 +110,18 @@ export class Copilot {
       callbacks: {
         onmessage: (message) => this.handle(message),
         onerror: () => this.events.onError("Copilot connection error"),
-        onclose: () => {
+        onclose: (event) => {
           // Only the live socket counts; an old one closing after a swap doesn't.
           if (this.closed || this.session !== session) return;
+          const why = event?.reason ? `${event.code}: ${event.reason}` : `code ${event?.code ?? "?"}`;
+          this.events.onError(`VESTA link dropped (${why}), reconnecting`);
           void this.reconnect();
         },
       },
     });
     this.session = session;
     this.failures = 0;
+    this.status("live");
     this.flushIfQuiet();
   }
 
@@ -112,6 +131,7 @@ export class Copilot {
   private async reconnect() {
     if (this.closed || this.reconnecting) return;
     this.reconnecting = true;
+    this.status("reconnecting");
     const old = this.session;
     this.session = null;
     this.replying = false;
@@ -120,15 +140,19 @@ export class Copilot {
       try {
         await this.connect();
         break;
-      } catch {
+      } catch (caught) {
         this.failures += 1;
+        this.events.onError(`VESTA reconnect failed: ${caught instanceof Error ? caught.message : String(caught)}`);
         // A stale handle can fail to resume: retry fresh after the first miss.
         if (this.failures >= 2) this.resumeHandle = null;
         await new Promise((resolve) => window.setTimeout(resolve, 1_000 * this.failures));
       }
     }
     this.reconnecting = false;
-    if (!this.session && !this.closed) this.events.onError("Copilot went offline");
+    if (!this.session && !this.closed) {
+      this.status("offline");
+      this.events.onError("Copilot went offline");
+    }
   }
 
   // ---- Speaking queue. Gemini sends her transcript faster than she speaks

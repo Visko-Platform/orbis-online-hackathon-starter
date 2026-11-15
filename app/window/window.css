@@ -1400,6 +1400,48 @@
   opacity: calc(0.45 + var(--level));
 }
 
+/* Gemini Live link light, under VESTA's name. */
+.sw-orb-link {
+  position: absolute;
+  bottom: -1.75cqw;
+  display: flex;
+  align-items: center;
+  gap: 0.35cqw;
+  padding: 0.15cqw 0.5cqw;
+  border: 1px solid rgb(143 243 234 / 0.18);
+  border-radius: 999px;
+  background: rgb(4 14 18 / 0.55);
+  color: #8ff3ea;
+  font: inherit;
+  font-size: 0.42cqw;
+  letter-spacing: 0.25em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sw-orb-link i {
+  width: 0.45cqw;
+  height: 0.45cqw;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0.5cqw currentColor;
+}
+.sw-orb-link.is-live i { animation: sw-link-beat 2.4s ease-in-out infinite; }
+.sw-orb-link.is-connecting,
+.sw-orb-link.is-reconnecting { color: #ffc46b; border-color: rgb(255 196 107 / 0.25); }
+.sw-orb-link.is-connecting i,
+.sw-orb-link.is-reconnecting i { animation: sw-link-beat 0.6s ease-in-out infinite; }
+.sw-orb-link.is-offline {
+  color: #ff7a7a;
+  border-color: rgb(255 122 122 / 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sw-orb-link.is-offline:hover { background: rgb(60 10 10 / 0.6); }
+@keyframes sw-link-beat {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 /* Ultra-wide screens (≈21:10 and wider): the extended 32:9 cockpit. The
    stage stays the 16:9 UI box in the middle; the art, world, warp and glass
    extend half a box to each side. Measured on the art: the wide cockpit's

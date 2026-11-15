@@ -27,7 +27,7 @@ import { type Pulse, WarpCanvas } from "@/components/warp-canvas";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { CockpitAudio } from "@/lib/cockpit-audio";
-import { Copilot, Priority } from "@/lib/copilot";
+import { Copilot, type CopilotStatus, Priority } from "@/lib/copilot";
 import {
   ORBIS_MODELS,
   type OrbisModelKey,
@@ -254,6 +254,7 @@ function Cockpit({
   const [log, setLog] = useState<string[]>(["Systems cold. Pick a destination, or LAUNCH."]);
   const [caption, setCaption] = useState("");
   const [speaking, setSpeaking] = useState(false);
+  const [vestaStatus, setVestaStatus] = useState<CopilotStatus>("offline");
   const [plotting, setPlotting] = useState(false);
   const [course, setCourse] = useState("");
   const [pulse, setPulse] = useState<Pulse | null>(null);
@@ -1062,6 +1063,7 @@ function Cockpit({
       onError: (message) => addLog(`${message}. Flying solo.`),
       onTool: (name, args) => voiceRef.current.order(name, args),
       onHeard: (text) => voiceRef.current.heard(text),
+      onStatus: setVestaStatus,
     });
     copilot.current = vesta;
     vesta.setVolume(vestaLevel);
@@ -1070,6 +1072,7 @@ function Cockpit({
       `Pre-flight briefing, blast shield closed. Greet the Captain, then read our mission "${briefing.title}": ${briefing.goal} End by saying the drive is spooling up.`,
     );
     vesta.connect().catch((caught: unknown) => {
+      setVestaStatus("offline");
       addLog(`VESTA offline: ${caught instanceof Error ? caught.message : String(caught)}`);
     });
 
@@ -1500,6 +1503,7 @@ function Cockpit({
         onError: (message) => addLog(message),
         onTool: (name, args) => voiceRef.current.order(name, args),
         onHeard: (text) => voiceRef.current.heard(text),
+        onStatus: setVestaStatus,
       });
       copilot.current = vesta;
       vesta.setVolume(vestaLevel);
@@ -1779,7 +1783,7 @@ function Cockpit({
           </div>
         )}
 
-        {!docked && <VestaOrb copilot={copilot} speaking={speaking} listening={listening} />}
+        {!docked && <VestaOrb copilot={copilot} speaking={speaking} listening={listening} status={vestaStatus} />}
 
         {(listening || captainLine) && (
           <div className="sw-subtitle is-captain" aria-live="polite">
@@ -2203,10 +2207,12 @@ function VestaOrb({
   copilot,
   speaking,
   listening,
+  status,
 }: {
   copilot: { current: Copilot | null };
   speaking: boolean;
   listening: boolean;
+  status: CopilotStatus;
 }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2242,6 +2248,16 @@ function VestaOrb({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/vesta-orb.jpg" alt="" draggable={false} />
       <span className="sw-orb-name">VESTA</span>
+      <button
+        type="button"
+        className={`sw-orb-link is-${status}`}
+        title={status === "offline" ? "Gemini Live offline: click to reconnect" : `Gemini Live: ${status}`}
+        onClick={() => copilot.current?.retry()}
+        disabled={status !== "offline"}
+      >
+        <i />
+        {status === "live" ? "LINK LIVE" : status === "offline" ? "OFFLINE · RETRY" : status === "reconnecting" ? "RELINKING" : "LINKING"}
+      </button>
     </div>
   );
 }
