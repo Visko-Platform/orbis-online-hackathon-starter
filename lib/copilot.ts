@@ -28,6 +28,8 @@ export class Copilot {
   private session: Session | null = null;
   private context: AudioContext;
   private output: GainNode;
+  private analyser: AnalyserNode;
+  private levelBuffer = new Float32Array(512);
   private playhead = 0;
   private sources = new Set<AudioBufferSourceNode>();
   private caption = "";
@@ -42,6 +44,9 @@ export class Copilot {
     this.output = this.context.createGain();
     this.output.gain.value = 1;
     this.output.connect(this.context.destination);
+    this.analyser = this.context.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.output.connect(this.analyser);
   }
 
   async connect() {
@@ -119,6 +124,14 @@ export class Copilot {
     const next = this.pending;
     this.pending = null;
     this.send(next.text);
+  }
+
+  /** How loud she is right now, 0–1 (RMS of her output): drives the orb. */
+  level() {
+    this.analyser.getFloatTimeDomainData(this.levelBuffer);
+    let sum = 0;
+    for (const sample of this.levelBuffer) sum += sample * sample;
+    return Math.min(1, Math.sqrt(sum / this.levelBuffer.length) * 4);
   }
 
   /** Show VESTA what's outside: one JPEG frame (base64) of the live view. */

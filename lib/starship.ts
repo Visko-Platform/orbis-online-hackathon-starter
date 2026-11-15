@@ -34,17 +34,21 @@ export type Destination = {
 
 export type Throttle = "reverse" | "drift" | "cruise" | "boost";
 export const THROTTLES: Throttle[] = ["reverse", "drift", "cruise", "boost"];
+/** What the helm can select. Reverse is reserved for the Impactor finale:
+ *  it's a flight game, so normal flight always moves forward. */
+export const HELM_THROTTLES: Throttle[] = ["drift", "cruise", "boost"];
 export type Bank = -1 | 0 | 1;
 export type Helm = { throttle: Throttle; bank: Bank };
 
 const MOTION: Record<Throttle, string> = {
   reverse:
     "The camera flies steadily backward, the scene receding away from it while new detail slides in from the edges of the frame.",
-  drift: "The camera drifts slowly forward at a gentle, steady pace.",
+  drift:
+    "The camera glides slowly forward, a gentle steady push-in, the ground drifting toward and beneath it.",
   cruise:
-    "The camera flies steadily forward at cruising speed, low over the terrain, the landscape streaming past beneath it.",
+    "The camera flies forward at cruising speed low over the ground, terrain rushing toward the camera and streaming beneath it.",
   boost:
-    "The camera races forward at high speed, skimming just above the surface, foreground detail rushing past in a blur.",
+    "The camera races forward at high speed just above the surface, the ground rushing toward the lens and blurring beneath it.",
 };
 
 const BANK: Record<Bank, string> = {
@@ -69,11 +73,18 @@ export function sceneOf(destination: Destination) {
  * a cockpit, window or ship, or Orbis may paint its own over ours.
  */
 export function composePrompt(scene: string, helm: Helm) {
-  return [
-    scene.trim(),
-    motionClause(helm),
-    "Rich, sharp detail in the foreground, midground and far background. Cinematic and photorealistic, a single unbroken take.",
-  ].join(" ");
+  // Orbis weighs the start of a prompt most, so the direction of travel
+  // leads. Without it, scene-first prompts sometimes drift backward.
+  // Video models know camera language: "FPV drone shot", "push-in", "dolly
+  // forward". Forward motion leads AND closes every prompt.
+  const reverse = helm.throttle === "reverse";
+  const lead = reverse
+    ? "Reverse flight, the camera pulling backward away from the scene."
+    : "FPV drone shot flying forward: the camera pushes continuously forward into the scene, everything ahead growing larger and closer as it approaches, the horizon drawing nearer.";
+  const close = reverse
+    ? "Cinematic and photorealistic, a single unbroken take."
+    : "Continuous forward camera motion throughout, a dolly-forward push that never stops. Cinematic and photorealistic, a single unbroken take.";
+  return [lead, scene.trim(), motionClause(helm), "Rich, sharp detail near and far.", close].join(" ");
 }
 
 /** Step one of every jump; the destination follows a few seconds later. */

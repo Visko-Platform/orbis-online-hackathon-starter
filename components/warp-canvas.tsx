@@ -16,9 +16,19 @@ export const JUMP_BURST_MS = 2_400;
  *  - "arrive" (≈1 s): a single expanding ring and a scatter of sparkles.
  * Nothing is drawn between pulses.
  */
-export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
+export function WarpCanvas({
+  pulse,
+  sustain = false,
+}: {
+  pulse: Pulse | null;
+  /** While true (in transit between worlds), the streak tunnel keeps flowing
+   *  at a lower intensity after the jump burst, until arrival. */
+  sustain?: boolean;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const started = useRef<{ kind: Pulse["kind"]; at: number } | null>(null);
+  const sustainRef = useRef(sustain);
+  sustainRef.current = sustain;
 
   useEffect(() => {
     if (pulse) started.current = { kind: pulse.kind, at: performance.now() };
@@ -45,6 +55,7 @@ export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
     }));
 
     let frame = 0;
+    let cruise = 0; // the sustained tunnel's level, eased
     let width = 0;
     let height = 0;
     let last = performance.now();
@@ -92,23 +103,28 @@ export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
       const dt = Math.min((time - last) / 1000, 0.05);
       last = time;
       context.clearRect(0, 0, width, height);
-      const effect = started.current;
-      if (!effect) return;
-
-      const duration = effect.kind === "jump" ? JUMP_BURST_MS : 1_000;
-      const t = (time - effect.at) / duration;
-      if (t >= 1) {
-        started.current = null;
-        return;
+      cruise += ((sustainRef.current ? 0.42 : 0) - cruise) * (1 - Math.exp(-dt * 2.2));
+      let effect = started.current;
+      let t = 0;
+      if (effect) {
+        const duration = effect.kind === "jump" ? JUMP_BURST_MS : 1_000;
+        t = (time - effect.at) / duration;
+        if (t >= 1) {
+          started.current = null;
+          effect = null;
+        }
       }
+      if (!effect && cruise < 0.01) return;
 
       const cx = width * 0.5;
       const cy = height * 0.45; // middle of the windshield
       const reach = Math.hypot(width, height) * 0.62;
       context.globalCompositeOperation = "lighter";
 
-      if (effect.kind === "jump") {
-        const level = envelope(t, 0.22, 0.38);
+      if (!effect || effect.kind === "jump") {
+        // The burst rides on top of the sustained transit tunnel.
+        const burst = effect ? envelope(t, 0.22, 0.38) : 0;
+        const level = Math.max(burst, cruise);
 
         // Bloom at the vanishing point.
         const bloom = context.createRadialGradient(cx, cy, 0, cx, cy, reach * 0.45);
@@ -149,8 +165,8 @@ export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
           context.stroke();
         }
 
-        // Quantum sparkles twinkle in during the charge.
-        for (const spark of sparkles) {
+        // Quantum sparkles twinkle in during the charge (burst only).
+        if (effect) for (const spark of sparkles) {
           const local = envelope((t - spark.delay * 0.4) / 0.75, 0.3, 0.5);
           if (local <= 0) continue;
           const twinkle = 0.5 + 0.5 * Math.sin(time / 90 + spark.phase);
@@ -159,7 +175,7 @@ export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
 
         // A light ring racing outward at the moment of the jump.
         const ringT = (t - 0.42) / 0.3;
-        if (ringT > 0 && ringT < 1) {
+        if (effect && ringT > 0 && ringT < 1) {
           context.strokeStyle = `rgba(220,240,255,${(1 - ringT) * 0.55})`;
           context.lineWidth = 3 + (1 - ringT) * 10;
           context.beginPath();
@@ -168,8 +184,9 @@ export function WarpCanvas({ pulse }: { pulse: Pulse | null }) {
         }
 
         // Clear with a brief flash.
-        const flash = envelope((t - 0.6) / 0.25, 0.3, 0.7);
-        if (flash > 0) {
+        // A soft flash only when nothing sustains the tunnel after the burst.
+        const flash = sustainRef.current ? 0 : envelope((t - 0.6) / 0.25, 0.3, 0.7);
+        if (effect && flash > 0) {
           context.globalCompositeOperation = "source-over";
           context.fillStyle = `rgba(235,245,255,${flash * 0.35})`;
           context.fillRect(0, 0, width, height);

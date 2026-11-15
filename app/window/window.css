@@ -521,9 +521,12 @@
 }
 
 /* VESTA's subtitles, cinema style over the lower windshield. */
+/* Low on the glass like film subtitles, never across the middle of the view:
+   just above the route cards / decision when they're up, otherwise right at
+   the windshield's bottom edge. */
 .sw-subtitle {
   position: absolute;
-  bottom: 40%;
+  bottom: 32.5%;
   left: 50%;
   display: flex;
   flex-direction: column;
@@ -536,11 +539,15 @@
   animation: sw-fade-in 200ms ease-out;
 }
 
+.sw-stage:not(:has(.sw-choices, .sw-decision, .sw-detonate)) .sw-subtitle {
+  bottom: 25.5%;
+}
+
 .sw-subtitle p {
   margin: 0;
-  padding: 0.35cqw 0.9cqw;
+  padding: 0.3cqw 0.9cqw;
   color: #f4fffd;
-  font-size: 1.2cqw;
+  font-size: 1cqw;
   line-height: 1.35;
   background: rgba(2, 10, 12, 0.6);
   border-radius: 0.3cqw;
@@ -1320,6 +1327,114 @@
   text-transform: uppercase;
 }
 
+/* VESTA's orb, lower right of the windshield. --level (0–1) is her live
+   voice loudness, written every frame. */
+.sw-orb {
+  --level: 0;
+  position: absolute;
+  right: 14%;
+  bottom: 33.5%;
+  display: grid;
+  place-items: center;
+  width: 6cqw;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.sw-orb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  transform: scale(calc(0.86 + var(--level) * 0.32));
+  filter: brightness(calc(0.85 + var(--level) * 1.1)) saturate(calc(1 + var(--level) * 0.6));
+  animation: sw-orb-breathe 4.2s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+.sw-orb.is-speaking img {
+  animation: none;
+}
+
+@keyframes sw-orb-breathe {
+  50% {
+    transform: scale(0.92);
+    filter: brightness(1);
+  }
+}
+
+.sw-orb-ripple {
+  position: absolute;
+  inset: 22%;
+  border: 1px solid rgba(143, 243, 234, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 0.8cqw rgba(80, 240, 220, 0.6);
+  animation: sw-orb-ripple 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes sw-orb-ripple {
+  to {
+    inset: -35%;
+    opacity: 0;
+  }
+}
+
+.sw-orb-name {
+  position: absolute;
+  bottom: -0.6cqw;
+  color: #8ff3ea;
+  font-size: 0.5cqw;
+  letter-spacing: 0.35em;
+  opacity: calc(0.45 + var(--level));
+}
+
+/* Ultra-wide screens (≈21:10 and wider): the extended 32:9 cockpit. The
+   stage stays the 16:9 UI box in the middle; the art, world, warp and glass
+   extend half a box to each side. Measured on the art: the wide cockpit's
+   windshield ends 2.5% higher and its console sits 2.3% higher, so the UI
+   is shifted by exactly that. */
+@media (min-aspect-ratio: 21/10) {
+  .sw-stage {
+    width: calc(min(max(100vw, 355.56vh), 376.9vh) / 2);
+    box-shadow: none;
+  }
+  .sw-world {
+    left: -53%;
+    right: -53%;
+  }
+  .sw-warp,
+  .sw-glass,
+  .sw-cockpit {
+    left: -50%;
+    width: 200%;
+  }
+  /* The blast shield covers every window, not just the centre. */
+  .sw-shield {
+    left: -50%;
+    right: -50%;
+  }
+  .sw-glass {
+    right: auto;
+  }
+  .sw-screen-center { top: 80.3%; }
+  .sw-screen-left,
+  .sw-screen-right { top: 84.9%; }
+  .sw-keys { top: 79.9%; }
+  .sw-choices { bottom: 29%; }
+  .sw-decision { bottom: 29%; }
+  .sw-detonate { bottom: 30%; }
+  .sw-helm { bottom: 29.5%; }
+  .sw-orb { bottom: 36.5%; }
+  .sw-subtitle { bottom: 38%; }
+  .sw-stage:not(:has(.sw-choices, .sw-decision, .sw-detonate)) .sw-subtitle { bottom: 30.5%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-orb img {
+    animation: none;
+  }
+}
+
 /* VESTA's plotted routes: holo cards that slide up over the lower windshield. */
 .sw-choices {
   position: absolute;
@@ -1498,5 +1613,51 @@ label.sw-mix {
   .sw-jumping,
   .sw-key.is-target {
     animation: none;
+  }
+}
+
+/* Floating UI always draws above the cockpit frame, so nothing that sits low
+   on the glass can disappear behind the metal on any screen shape. */
+.sw-cabin {
+  z-index: 1;
+}
+
+.sw-choices,
+.sw-decision,
+.sw-detonate,
+.sw-subtitle,
+.sw-orb,
+.sw-alert,
+.holo {
+  z-index: 2;
+}
+
+/* View B ("focused"): the world video stays sized to the central 16:9 box
+   (on an ultrawide that's ~2x sharper than stretching it across every
+   window) and fades to black toward the outer windows: deep space. */
+.sw.view-focus .sw-stage::before {
+  position: absolute;
+  top: -3%;
+  bottom: -3%;
+  left: -60%;
+  right: -60%;
+  content: "";
+  background: #000;
+}
+
+.sw.view-focus .sw-world {
+  inset: -3%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%);
+}
+
+.sw.view-focus .sw-ambient {
+  opacity: 0;
+}
+
+@media (min-aspect-ratio: 21/10) {
+  .sw.view-focus .sw-world {
+    left: -3%;
+    right: -3%;
   }
 }

@@ -6,3 +6,4 @@ npm-debug.log*
 .reactor-dev-sessions.json
 .reactor-dev-sessions.json.*.tmp
 .gstack/
+.vercel

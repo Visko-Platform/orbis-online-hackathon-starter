@@ -46,6 +46,7 @@ import {
   type Mission,
   IMPACTOR,
   POINTS,
+  HELM_THROTTLES,
   sceneOf,
   THROTTLES,
 } from "@/lib/starship";
@@ -60,6 +61,13 @@ type WorldEvent = { title: string; view: string; log: string; choices?: Choice[]
 
 /** An emergency waiting on the captain's decision. */
 type Emergency = { event: WorldEvent; world: number; deadline: number };
+
+/** One line for the decision log the director reads. */
+function describeDecision(place: string, event: WorldEvent, choice: Choice, byCaptain: boolean) {
+  return byCaptain
+    ? `At ${place}, facing "${event.title}", the captain chose "${choice.label}": ${choice.log}`
+    : `At ${place}, facing "${event.title}", the captain hesitated and VESTA chose "${choice.label}": ${choice.log}`;
+}
 
 /** Seconds the captain has to decide before VESTA takes the cautious option. */
 const DECIDE_SECONDS = 15;
@@ -80,10 +88,16 @@ type DirectorPlan = {
 };
 
 const SHAKE_MS = 1_500;
-/** An event is sent to Orbis this long after arrival (plus up to 6 s jitter). */
-const EVENT_DELAY_MS = 12_000;
-/** The scene driver writes Orbis a fresh beat this often. */
-const SCENE_BEAT_MS = 6_500;
+/** An emergency is sent to Orbis this long after arrival (plus up to 2 s).
+ *  A demo is about a minute: something must happen fast. */
+const EVENT_DELAY_MS = 4_000;
+/** After a decision, the next emergency at the same world (plus up to 3 s). */
+const FOLLOW_UP_DELAY_MS = 8_000;
+/** Show the decision once the emergency is visible, or after this at most. */
+const EMERGENCY_SEE_MS = 8_000;
+/** The scene driver writes Orbis a fresh beat this often. Every new prompt
+ *  is a chance for the model to re-frame, so not too often. */
+const SCENE_BEAT_MS = 9_000;
 /** Orbis shows a prompt 6–10 s after it's sent; give up looking after this. */
 const SEE_TIMEOUT_MS = 15_000;
 /** VESTA's video feed: one frame this often. */
@@ -178,6 +192,13 @@ function Cockpit({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(0);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
+  /** View "b" (default): the world stays sharp in the centre and fades to
+   *  black toward the outer windows. "a": it fills every window (softer on
+   *  ultrawide). ?view=a, G, or the button switches. */
+  const [view, setView] = useState<"a" | "b">("b");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("view") === "a") setView("a");
+  }, []);
   const [vestaLevel, setVestaLevel] = useState(1);
 
   const stage = useRef<HTMLDivElement>(null);
@@ -197,6 +218,14 @@ function Cockpit({
   const missionRef = useRef({ mission, stage: missionStage, done: missionDone });
   missionRef.current = { mission, stage: missionStage, done: missionDone };
   const bankTimer = useRef<number | null>(null);
+  /** The captain's decisions so far: every director call reacts to them. */
+  const decisions = useRef<string[]>([]);
+  /** Plans pre-computed for each route on the console, keyed by route id. */
+  const routePlans = useRef(new Map<string, Promise<DirectorPlan>>());
+  /** Plans pre-computed for both answers to the emergency on screen. */
+  const branchPlans = useRef<Promise<DirectorPlan>[] | null>(null);
+  const hereRef = useRef(here);
+  hereRef.current = here;
   /** Dev layout preview: flying without a session must not auto-dock. */
   const previewing = useRef(false);
   const beats = useRef(0);
@@ -216,7 +245,9 @@ function Cockpit({
 
   /** Steer Orbis to a scene, with the helm's motion composed in. */
   const steer = async (scene: string) => {
-    const ok = await session.steerTo(composePrompt(scene, helmRef.current));
+    const prompt = composePrompt(scene, helmRef.current);
+    if (process.env.NODE_ENV === "development") console.info("[orbis prompt]", prompt);
+    const ok = await session.steerTo(prompt);
     if (ok) lastScene.current = scene;
     return ok;
   };
@@ -226,9 +257,13 @@ function Cockpit({
    * `expect` is actually on screen, so nothing is announced early.
    * Resolves true when seen, false on timeout or when `stillValid` turns false.
    */
-  const waitUntilSeen = async (expect: string, stillValid: () => boolean) => {
-    const deadline = Date.now() + SEE_TIMEOUT_MS;
-    await new Promise((resolve) => window.setTimeout(resolve, 3_500));
+  const waitUntilSeen = async (
+    expect: string,
+    stillValid: () => boolean,
+    maxMs: number = SEE_TIMEOUT_MS,
+  ) => {
+    const deadline = Date.now() + maxMs;
+    await new Promise((resolve) => window.setTimeout(resolve, Math.min(3_500, maxMs / 2)));
     while (Date.now() < deadline && stillValid()) {
       const frame = captureFrame();
       if (frame) {
@@ -243,6 +278,14 @@ function Cockpit({
     if (eventTimer.current) window.clearTimeout(eventTimer.current);
     eventTimer.current = null;
   };
+
+  // ---- Delivery resolution: Orbis defaults to 2k. Try others for a given
+  // screen with /window?res=4k (or 1080p); applied at the next launch.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("res");
+    if (requested && /^(1080p|2k|4k|native)$/.test(requested)) session.setResolution(requested);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---- Parallax: pointer → CSS variables (no re-renders).
   useEffect(() => {
@@ -379,10 +422,11 @@ function Cockpit({
 
   const setThrottle = (offset: -1 | 1) =>
     setHelm((current) => {
-      const index = THROTTLES.indexOf(current.throttle) + offset;
-      if (index < 0 || index >= THROTTLES.length) return current;
+      const at = Math.max(0, HELM_THROTTLES.indexOf(current.throttle));
+      const index = at + offset;
+      if (index < 0 || index >= HELM_THROTTLES.length) return current;
       peekHelm();
-      return { ...current, throttle: THROTTLES[index] };
+      return { ...current, throttle: HELM_THROTTLES[index] };
     });
   const bank = (direction: -1 | 1) => {
     peekHelm();
@@ -462,11 +506,11 @@ function Cockpit({
       setMissionDone(true);
       setAlert("Mission complete");
       points += POINTS.finale;
-      missionNote = ` This is the finale of our mission "${goal.title}" (${goal.goal}). Deliver the payoff in two sentences: what we found here and what it means.`;
+      missionNote = ` This is the finale of our mission "${goal.title}" (${goal.goal}). In two sentences, tie what you can actually see outside to the mission's end.`;
     } else if (dest.mission) {
       setMissionStage((stage) => Math.min(MISSION_STAGES, stage + 1));
       points += POINTS.clue;
-      missionNote = ` This world was on the mission trail (we came for: ${dest.clue}). Mention the clue we find here in one breath.`;
+      missionNote = ` This world was on the mission trail (we came looking for: ${dest.clue}). Only mention the clue if you can actually see something like it.`;
     }
     if (points) {
       setScore((current) => current + points);
@@ -475,73 +519,122 @@ function Cockpit({
     tellVesta(
       how === "launch"
         ? `The blast shield is open: we are at ${dest.name} (${dest.era}). Say what you see outside.`
-        : `Arrived at ${dest.name} (${dest.era}). Say what you see outside.${missionNote}`,
-      dest.finale ? Priority.Urgent : Priority.Normal,
+        : `We just arrived at ${dest.name} (${dest.era}): "we made it" moment. Say what you see outside.${missionNote}`,
+      how === "jump" || dest.finale ? Priority.Urgent : Priority.Normal,
     );
     const stageForScan = dest.mission ? Math.min(MISSION_STAGES, currentStage + 1) : currentStage;
 
-    void fetch("/api/director", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        world: { name: dest.name, era: dest.era, view: dest.view },
-        visited: visitedRef.current,
-        mission: missionRef.current.done
-          ? undefined
-          : {
-              title: missionRef.current.mission.title,
-              goal: missionRef.current.mission.goal,
-              stage: stageForScan,
-              stages: MISSION_STAGES,
-            },
-      }),
-    })
-      .then(async (response) => {
-        const plan = (await response.json()) as DirectorPlan;
-        if (!response.ok || !plan.options) throw new Error(plan.error || "scan failed");
+    // Pre-planned when this route appeared on the console; otherwise ask now.
+    const ask = () => requestPlan(dest, visitedRef.current, stageForScan);
+    const planned = routePlans.current.get(dest.id) ?? ask();
+    routePlans.current.clear();
+    void planned
+      .catch(ask)
+      .then((plan) => {
         if (world.current !== thisWorld) return;
-        setScanned(
-          plan.options.slice(0, 3).map((option, index) => ({
-            id: `scan-${thisWorld}-${index}`,
-            name: option.name,
-            era: option.era,
-            teaser: option.teaser,
-            view: option.view,
-            log: option.log,
-            generated: true,
-            mission: Boolean(option.mission) && !missionRef.current.done,
-            clue: option.clue,
-            finale: Boolean(option.finale) && Boolean(option.mission) && !missionRef.current.done,
-          })),
-        );
-        addLog("Scan complete: new routes plotted.");
-        window.setTimeout(() => {
-          if (world.current !== thisWorld) return;
-          tellVesta(
-            `New routes plotted: ${plan.options!
-              .slice(0, 3)
-              .map((option) => `${option.name} (${option.era}), "${option.teaser}"`)
-              .join("; ")}. Tease them and pick a favourite.`,
-            Priority.Low,
-          );
-        }, 6_000);
-        if (plan.event) {
-          const event = plan.event;
-          eventTimer.current = window.setTimeout(
-            () => {
-              if (world.current === thisWorld && voyage.current === flight) {
-                void strike(event, thisWorld);
-              }
-            },
-            EVENT_DELAY_MS + Math.random() * 6_000,
-          );
-        }
+        applyPlan(plan, thisWorld, flight, {
+          eventDelay: EVENT_DELAY_MS + Math.random() * 2_000,
+          intro: "Scan complete: new routes plotted.",
+        });
       })
       .catch(() => {
         if (world.current !== thisWorld) return;
         setScanned([]);
         addLog("Long-range scan failed. Charted routes only.");
       });
+  };
+
+  // ---- The story director. Every call carries the decision log, so what
+  // comes next reacts to what the captain chose.
+  const missionFor = (stage: number) =>
+    missionRef.current.done
+      ? undefined
+      : {
+          title: missionRef.current.mission.title,
+          goal: missionRef.current.mission.goal,
+          stage,
+          stages: MISSION_STAGES,
+        };
+
+  const requestPlan = async (
+    place: { name: string; era: string; view: string },
+    visited: string[],
+    stage: number,
+    decisionLog: string[] = decisions.current,
+  ): Promise<DirectorPlan> => {
+    const response = await fetch("/api/director", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        world: { name: place.name, era: place.era, view: place.view },
+        visited,
+        mission: missionFor(stage),
+        decisions: decisionLog,
+      }),
+    });
+    const plan = (await response.json()) as DirectorPlan;
+    if (!response.ok || !plan.options) throw new Error(plan.error || "scan failed");
+    return plan;
+  };
+
+  /**
+   * Put a plan on the console: its routes, VESTA's teaser, its emergency
+   * (scheduled), and pre-planning for every route so any jump is instant.
+   */
+  const applyPlan = (
+    plan: DirectorPlan,
+    thisWorld: number,
+    flight: number,
+    { eventDelay, intro }: { eventDelay: number; intro: string },
+  ) => {
+    const options = (plan.options ?? []).slice(0, 3);
+    const done = missionRef.current.done;
+    const routes: Destination[] = options.map((option, index) => ({
+      id: `scan-${thisWorld}-${Date.now()}-${index}`,
+      name: option.name,
+      era: option.era,
+      teaser: option.teaser,
+      view: option.view,
+      log: option.log,
+      generated: true,
+      mission: Boolean(option.mission) && !done,
+      clue: option.clue,
+      finale: Boolean(option.finale) && Boolean(option.mission) && !done,
+    }));
+    setScanned(routes);
+    addLog(intro);
+
+    // Pre-plan every route (mission stage as it will be on arrival there).
+    routePlans.current.clear();
+    const stageNow = missionRef.current.stage;
+    for (const route of routes) {
+      const stage = route.mission ? Math.min(MISSION_STAGES, stageNow + 1) : stageNow;
+      const pending = requestPlan(route, [...visitedRef.current, route.name], stage);
+      pending.catch(() => undefined); // a failed prefetch just falls back on arrival
+      routePlans.current.set(route.id, pending);
+    }
+
+    // Tease routes only when no emergency is coming; otherwise she'd spend
+    // the whole demo recommending.
+    if (!plan.event) window.setTimeout(() => {
+      if (world.current !== thisWorld) return;
+      tellVesta(
+        `New routes plotted: ${options
+          .map((option) => `${option.name} (${option.era}), "${option.teaser}"`)
+          .join("; ")}. Tease them and pick a favourite.`,
+        Priority.Low,
+      );
+    }, 6_000);
+
+    clearEventTimer();
+    if (plan.event) {
+      const event = plan.event;
+      eventTimer.current = window.setTimeout(() => {
+        if (world.current === thisWorld && voyage.current === flight) {
+          void strike(event, thisWorld);
+        }
+      }, eventDelay);
+    }
   };
 
   // ---- An unexpected event: alert, morph the view in place, VESTA reacts.
@@ -555,7 +648,11 @@ function Cockpit({
       if (world.current === thisWorld) sceneLock.current = "free";
       return;
     }
-    await waitUntilSeen(event.view, () => world.current === thisWorld);
+    // The alarm sounds now, while Orbis catches up (6–10 s): tension first.
+    audio.current?.alert();
+    setAlert(`Proximity warning · ${event.title}`);
+    tellVesta(`Sensors spike: something is happening outside. Warn the Captain in a few urgent words, without naming it yet.`, Priority.Urgent);
+    await waitUntilSeen(event.view, () => world.current === thisWorld, EMERGENCY_SEE_MS);
     if (world.current !== thisWorld) return;
     setHere((current) => ({ ...current, view: event.view, generated: true }));
     audio.current?.alert();
@@ -565,6 +662,18 @@ function Cockpit({
     if (event.choices?.length === 2) {
       // A decision: the scene stays locked on the emergency until it's resolved.
       setEmergency({ event, world: thisWorld, deadline: Date.now() + DECIDE_SECONDS * 1_000 });
+      // Plan BOTH futures while the captain decides, so either click is instant.
+      const place = hereRef.current;
+      branchPlans.current = event.choices.map((choice) => {
+        const pending = requestPlan(
+          { name: place.name, era: place.era, view: choice.outcome },
+          visitedRef.current,
+          missionRef.current.stage,
+          [...decisions.current, describeDecision(place.name, event, choice, true)],
+        );
+        pending.catch(() => undefined);
+        return pending;
+      });
       tellVesta(
         `EMERGENCY: ${event.title}. Call it out from what you can see, then ask the captain to choose: "${event.choices[0].label}" or "${event.choices[1].label}". Be quick.`,
         Priority.Urgent,
@@ -589,6 +698,34 @@ function Cockpit({
       sceneLock.current = "free";
       return;
     }
+    // Record it: every director call from now on reacts to this choice.
+    decisions.current = [
+      ...decisions.current,
+      describeDecision(hereRef.current.name, pending.event, choice, byCaptain),
+    ];
+    const branch = branchPlans.current?.[index];
+    branchPlans.current = null;
+    const flight = voyage.current;
+    const replan = () =>
+      requestPlan(
+        { name: hereRef.current.name, era: hereRef.current.era, view: choice.outcome },
+        visitedRef.current,
+        missionRef.current.stage,
+      );
+    setScanned(null);
+    void (branch ?? replan())
+      .catch(replan)
+      .then((plan) => {
+        if (world.current !== pending.world) return;
+        // The next emergency at this world comes a bit later than the first.
+        applyPlan(plan, pending.world, flight, {
+          eventDelay: FOLLOW_UP_DELAY_MS + Math.random() * 3_000,
+          intro: `Routes re-plotted after "${choice.label}".`,
+        });
+      })
+      .catch(() => {
+        if (world.current === pending.world) setScanned([]);
+      });
     const points = byCaptain ? choice.points : 0;
     if (points) setScore((current) => current + points);
     addLog(`${choice.log}${points ? ` +${points} points.` : ""}`);
@@ -597,8 +734,8 @@ function Cockpit({
     shake();
     tellVesta(
       byCaptain
-        ? `The captain chose "${choice.label}". ${choice.log} React in one line as it plays out.`
-        : `No orders came, so you took the cautious option yourself: "${choice.label}". ${choice.log} Say so in one line.`,
+        ? `The Captain chose "${choice.label}". React to the decision in one line. Don't describe the result: it isn't on screen yet.`
+        : `No orders came, so you took the cautious option yourself: "${choice.label}". Say so in one line, without describing the result yet.`,
       Priority.Urgent,
     );
     const ok = await steer(choice.outcome);
@@ -636,6 +773,9 @@ function Cockpit({
     setMissionDone(false);
     setScore(0);
     setDetonation("none");
+    decisions.current = [];
+    routePlans.current.clear();
+    branchPlans.current = null;
     setPhase("launching");
     setTarget(into === ORIGIN ? null : into);
     addLog(into === ORIGIN ? "Ignition…" : `Ignition. Plotting straight for ${into.name}…`);
@@ -656,7 +796,7 @@ function Cockpit({
     vesta.setVolume(vestaLevel);
     // Queued until she's connected, then read while the drive spools up.
     vesta.update(
-      `Pre-flight briefing, blast shield closed. Greet the captain and the room, then read our mission "${briefing.title}": ${briefing.goal} End by saying the drive is spooling up.`,
+      `Pre-flight briefing, blast shield closed. Greet the Captain, then read our mission "${briefing.title}": ${briefing.goal} End by saying the drive is spooling up.`,
     );
     vesta.connect().catch((caught: unknown) => {
       addLog(`VESTA offline: ${caught instanceof Error ? caught.message : String(caught)}`);
@@ -732,7 +872,7 @@ function Cockpit({
       setPhase("docked");
       addLog("Flight ended. Pick a destination to fly again.");
       window.setTimeout(() => setShowReel(true), 4_000);
-      tellVesta("The drive has shut down and the flight is over. Say goodbye to the room.");
+      tellVesta("The drive has shut down and the flight is over. Sign off to the Captain.");
       const vesta = copilot.current;
       const engine = audio.current;
       copilot.current = null;
@@ -820,6 +960,8 @@ function Cockpit({
       addLog(`Asteroid destroyed. Earth saved. +${POINTS.earthSaved} points.`);
       tellVesta("The asteroid is destroyed and Earth is saved. Celebrate with the captain in two short sentences.", Priority.Urgent);
       sceneLock.current = "free";
+      // Reverse was only for the escape: back to forward flight.
+      window.setTimeout(() => setHelm((current) => ({ ...current, throttle: "cruise" })), 5_000);
       window.setTimeout(() => {
         if (world.current === thisWorld) setAlert(null);
       }, 8_000);
@@ -834,6 +976,10 @@ function Cockpit({
 
     world.current += 1; // cancels this world's pending scan and event
     sceneLock.current = "jump";
+    if (helmRef.current.throttle === "reverse") {
+      helmRef.current = { ...helmRef.current, throttle: "cruise" };
+      setHelm(helmRef.current);
+    }
     setEmergency(null);
     setDetonation((current) => (current === "done" ? "done" : "none"));
     clearEventTimer();
@@ -842,7 +988,8 @@ function Cockpit({
     setPlotting(false);
     setAlert(null);
     addLog(`Jump plotted: ${dest.name}, ${dest.era}.`);
-    tellVesta(`The captain chose ${dest.name} (${dest.era}). The jump starts now.`);
+    // Urgent: her "drive engaged" line must land with the warp, not after it.
+    tellVesta(`The Captain chose ${dest.name} (${dest.era}). The drive engages NOW: one short line.`, Priority.Urgent);
     audio.current?.teleport();
     firePulse("jump");
     shake();
@@ -860,8 +1007,9 @@ function Cockpit({
       addLog(`Jump aborted. Still at ${here.name}.`);
       return;
     }
-    // Arrive (chime, ring, VESTA) only once the new world is on screen.
-    await waitUntilSeen(dest.view, stillFlying);
+    // The tunnel keeps flowing; arrive (flash, chime, VESTA) the moment the
+    // new world is on screen, or after 10 s at most.
+    await waitUntilSeen(dest.view, stillFlying, 10_000);
     if (!stillFlying()) return;
     audio.current?.arrive();
     firePulse("arrive");
@@ -933,7 +1081,7 @@ function Cockpit({
         return;
       }
     }
-    tellVesta("Systems check before launch. Introduce yourself to the room in one line.");
+    tellVesta("Systems check before launch. Introduce yourself to the Captain in one line.");
   };
   // Dev only: F previews the flying layout, R the captain's log, without
   // Orbis. (Jumps from the preview fail safely: there is no session.)
@@ -1026,6 +1174,7 @@ function Cockpit({
       else if (key === "a") current.rehearse("arrive");
       else if (key === "v") void current.rehearseVesta();
       else if (key === "f") void current.previewLayout("flying");
+      else if (key === "g") setView((current) => (current === "a" ? "b" : "a"));
       else if (key === "q") current.decide(0);
       else if (key === "e") current.decide(1);
       else if (key === "h") setHelmOpen((open) => !open);
@@ -1044,7 +1193,7 @@ function Cockpit({
   const shown = target ?? here;
 
   return (
-    <div className="sw">
+    <div className={`sw ${view === "b" ? "view-focus" : ""}`}>
       <AmbientGlow />
       <div className="sw-stage" ref={stage}>
         <div className="sw-world">
@@ -1060,7 +1209,7 @@ function Cockpit({
           )}
         </div>
 
-        <WarpCanvas pulse={pulse} />
+        <WarpCanvas pulse={pulse} sustain={phase === "jumping"} />
         <div className="sw-glass" aria-hidden />
 
         {flash > 0 && <div key={flash} className="sw-flash" aria-hidden />}
@@ -1171,6 +1320,8 @@ function Cockpit({
           </div>
         )}
 
+        {!docked && <VestaOrb copilot={copilot} speaking={speaking} />}
+
         {caption && (
           <div className={`sw-subtitle ${speaking ? "is-speaking" : ""}`} aria-live="polite">
             <span className="sw-subtitle-name">
@@ -1182,8 +1333,13 @@ function Cockpit({
 
         <div className="sw-cabin">
           <div className={`sw-cabin-inner ${shaking ? "is-shaking" : ""}`}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="sw-cockpit" src="/cockpit.png" alt="" draggable={false} />
+            {/* Ultra-wide screens get the extended cockpit (same console, more
+                window); the UI stays on its centre half either way. */}
+            <picture>
+              <source media="(min-aspect-ratio: 21/10)" srcSet="/cockpit-wide.png" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="sw-cockpit" src="/cockpit.png" alt="" draggable={false} />
+            </picture>
 
             {/* Left screen: drive time */}
             <div className="sw-screen sw-screen-left">
@@ -1301,7 +1457,7 @@ function Cockpit({
                 ▲
               </button>
               <ol>
-                {[...THROTTLES].reverse().map((throttle) => (
+                {[...HELM_THROTTLES].reverse().map((throttle) => (
                   <li key={throttle} className={throttle === helm.throttle ? "is-on" : ""}>
                     {throttle}
                   </li>
@@ -1410,6 +1566,13 @@ function Cockpit({
             Log ({postcards.length})
           </button>
         )}
+        <button
+          type="button"
+          title="A: the world fills every window. B: sharper centre, fading to black at the edges (G)"
+          onClick={() => setView((current) => (current === "a" ? "b" : "a"))}
+        >
+          View: {view.toUpperCase()}
+        </button>
         <Fader label="World" value={worldLevel} onChange={setWorldLevel} />
         <Fader label="VESTA" value={vestaLevel} onChange={setVestaLevel} />
         {session.connected && (
@@ -1487,6 +1650,53 @@ function AmbientGlow() {
     return () => window.clearInterval(timer);
   }, []);
   return <canvas className="sw-ambient" ref={canvas} aria-hidden />;
+}
+
+/**
+ * VESTA's orb. Driven by her actual voice: it swells and brightens with her
+ * loudness every frame, throws a ripple ring on stressed syllables, and
+ * breathes slowly when she's quiet. The orb art is on pure black and blended
+ * with "screen", so the black disappears and only the glow remains.
+ */
+function VestaOrb({
+  copilot,
+  speaking,
+}: {
+  copilot: { current: Copilot | null };
+  speaking: boolean;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    let frame = 0;
+    let smooth = 0;
+    let lastRipple = 0;
+    const tick = (time: number) => {
+      frame = requestAnimationFrame(tick);
+      const level = copilot.current?.level() ?? 0;
+      // Fast attack, slower release, so it pulses with syllables.
+      smooth += (level - smooth) * (level > smooth ? 0.45 : 0.12);
+      element.style.setProperty("--level", smooth.toFixed(3));
+      if (level > 0.38 && time - lastRipple > 260) {
+        lastRipple = time;
+        const ring = document.createElement("span");
+        ring.className = "sw-orb-ripple";
+        ring.addEventListener("animationend", () => ring.remove());
+        element.appendChild(ring);
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [copilot]);
+
+  return (
+    <div ref={host} className={`sw-orb ${speaking ? "is-speaking" : ""}`} aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/vesta-orb.jpg" alt="" draggable={false} />
+      <span className="sw-orb-name">VESTA</span>
+    </div>
+  );
 }
 
 function Fader({

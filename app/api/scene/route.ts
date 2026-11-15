@@ -11,19 +11,25 @@ export const runtime = "nodejs";
 //   mode "check":  say whether something we asked Orbis for is visible yet,
 //                  so nothing is announced before the audience can see it.
 
-const EVOLVE = `You keep a real-time video model's shot alive. You see the
-current frame of a continuous forward-drifting shot, the world it is meant to
-be, and the last prompt sent. Write the scene text for the next ~6 seconds.
+const EVOLVE = `You keep a real-time video model's FLIGHT moving. The camera
+flies forward continuously through a world; you see the current frame, the
+world it is meant to be, and the last scene text sent. Write the scene text
+for the next ~9 seconds of the journey.
 
-Write it the way the video model's own curated presets are written:
-- Open by re-establishing continuity explicitly: "The same <world>, the same
-  <key feature>…", describing what is visible now.
-- Then ONE new development coming into view ahead: a landmark, creature,
-  weather or light change, a structure. Keep it plausible for this world.
-- Layer the detail: foreground close below, midground, far background.
+This is a journey, not a still: the camera has moved further forward since
+the last beat. Never re-describe the whole layout or put landmarks back where
+they were (re-describing the setting makes the model re-frame the shot,
+which reads as flying backward). Instead:
+- Start from what is directly ahead in the frame NOW, close and getting
+  closer, and what is rushing past beneath.
+- Bring ONE new thing into view ahead (a landmark, creature, structure,
+  weather or light change) that the camera is flying toward.
+- Anything named before as distant should now loom larger and nearer, or be
+  passing by. Distances only shrink.
 - Describe the SCENE only, not camera motion (motion is added separately).
+  Never describe anything receding, shrinking away or the view pulling back.
 - Never mention a cockpit, window, ship, aircraft, vehicle or camera.
-- 40–60 words, present tense, concrete visual language.
+- 35–55 words, present tense, concrete visual language.
 Also return "seen": one short sentence (under 14 words) describing what the
 frame actually shows right now.`;
 

@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 const SYSTEM = `You are the procedural story director for a live demo in which
 a time-travelling starship drifts through worlds rendered by a real-time video
-model. You never speak to the audience; you only return JSON.
+model. You never speak to the player; you only return JSON.
 
 Given the current world and the voyage so far, return:
 1. "options": exactly three onward destinations that feel connected to the
@@ -37,6 +37,13 @@ and one named, striking landmark on the far horizon, plus sky and light.
 Rich, concrete, specific. 45 words max. Describe the scene only, never camera
 motion (that is added separately). Never mention a cockpit, window, ship,
 aircraft, vehicle, camera, or people looking at the camera.
+
+CONSEQUENCES: you may be given the captain's decisions so far, most recent
+last. The story must react to them. If the most recent decision was just made
+here, the options and the next emergency must follow directly from it: what
+the choice set in motion, what it opened up or put at risk. Earlier
+decisions can echo later (a debt, a pursuer, a damaged system, an ally).
+Reference consequences concretely in the options' teasers and logs.
 
 MISSION: the voyage has a goal (given below) and a stage. Exactly one of the
 three options must carry the mission forward ("mission": true), with "clue":
@@ -112,12 +119,14 @@ export async function POST(request: Request) {
     world?: { name?: string; era?: string; view?: string };
     visited?: string[];
     mission?: { title?: string; goal?: string; stage?: number; stages?: number };
+    decisions?: string[];
   } | null;
   const world = body?.world;
   if (!world?.name || !world.view) {
     return NextResponse.json({ error: "The current world is required" }, { status: 400 });
   }
   const visited = (body?.visited ?? []).slice(-12).map((name) => String(name).slice(0, 60));
+  const decisions = (body?.decisions ?? []).slice(-6).map((line) => String(line).slice(0, 240));
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -129,6 +138,9 @@ export async function POST(request: Request) {
             `Current world: ${world.name} (${world.era ?? "unknown era"})`,
             `What it looks like: ${String(world.view).slice(0, 600)}`,
             `Visited so far: ${visited.join("; ") || "nothing yet"}`,
+            decisions.length
+              ? `Captain's decisions so far (most recent last):\n- ${decisions.join("\n- ")}`
+              : "Captain's decisions so far: none",
             body?.mission?.goal
               ? `Mission: ${String(body.mission.title ?? "").slice(0, 80)}: ${String(body.mission.goal).slice(0, 300)}\nMission stage: ${Number(body.mission.stage ?? 1)} of ${Number(body.mission.stages ?? 4)}${Number(body.mission.stage) >= Number(body.mission.stages ?? 4) ? " (FINAL STAGE: the mission option must be the finale)" : ""}`
               : "Mission: none",
