@@ -8,6 +8,9 @@ import type { LockedHat } from "@/lib/camera/locked-hat";
 import type { SketchLayer } from "@/lib/camera/sketch-layer";
 import { SketchOutput } from "./sketch-images";
 import { LockedHatOverlay } from "./locked-hat-overlay";
+import { useFirstOrbisFrame } from "@/hooks/use-first-orbis-frame";
+import type { OrbisTimeline } from "@/hooks/use-orbis-timeline";
+import { OrbisRenderTimeline } from "@/components/orbis-render-timeline";
 
 export function useOBSWindow() {
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -43,25 +46,30 @@ export function useOBSWindow() {
 
 const fill = { position: "absolute", inset: 0, width: "100%", height: "100%" } as const;
 
-export function RenderOutput({ running, muted, container, hat, status, layers }: {
+export function RenderOutput({ running, muted, container, hat, status, layers, timeline, onFirstFrame }: {
   running: boolean;
   muted: boolean;
   container: HTMLElement | null;
   hat?: LockedHat;
   status: string;
   layers: SketchLayer[];
+  timeline?: OrbisTimeline;
+  onFirstFrame: () => void;
 }) {
   const player = useRef<HTMLDivElement>(null);
+  useFirstOrbisFrame(player, running, onFirstFrame);
   const [mirror, setMirror] = useState<HTMLCanvasElement | null>(null);
   const [sketchMirror, setSketchMirror] = useState<HTMLCanvasElement | null>(null);
   const images = layers.some(({ selected }) => selected);
   return <>
     <div className="live-frame" ref={player}>
       {running ? <ReactorView track="main_video" audioTrack="main_audio" muted={muted}
-        style={fill} videoObjectFit="contain" /> : <span role="status" className="live-placeholder">{status}</span>}
+        style={fill} videoObjectFit="contain" /> : (!timeline || timeline.endedAt !== undefined) &&
+        <span role="status" className="live-placeholder">{status}</span>}
       {running && hat && <LockedHatOverlay hat={hat} player={player} mirror={mirror} />}
       {running && images && <SketchOutput player={player} layers={layers} mirror={sketchMirror} inset={!!hat} />}
     </div>
+    {timeline && <OrbisRenderTimeline timeline={timeline} />}
     {container && running && createPortal(
       <>
         <ReactorView track="main_video" muted style={fill} videoObjectFit="contain" />

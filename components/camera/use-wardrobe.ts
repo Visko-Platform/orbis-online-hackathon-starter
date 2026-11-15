@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { decodeAccessory, type CameraAccessory } from "@/lib/camera/accessory-overlay";
 import { headwearFromViews } from "@/lib/camera/headwear";
 import { garmentFit } from "@/lib/camera/upper-body";
-import { emptyWardrobe, loadWardrobe, saveWardrobe, wornAccessories, type Wardrobe, type WardrobePiece } from "@/lib/camera/wardrobe";
+import { emptyWardrobe, loadWardrobe, normalizeWardrobe, saveWardrobe, wornAccessories, type Wardrobe, type WardrobePiece } from "@/lib/camera/wardrobe";
 
 async function decodeWardrobePiece(piece: WardrobePiece): Promise<CameraAccessory> {
-  const views = await decodeAccessory(piece.sheet);
+  const views = await decodeAccessory(piece.sheet, piece.placement);
   try {
     const headwear = piece.placement === "head" ? headwearFromViews(views) : undefined;
-    const fit = piece.placement === "shoulders" ? garmentFit(views[0]) : undefined;
+    const fullBody = piece.placement === "fullBody";
+    const fit = fullBody || piece.placement === "shoulders" ? garmentFit(views[0], fullBody) : undefined;
     return { ...piece, views, headwear, garmentFit: fit };
   } catch (error) {
     views.forEach((view) => view.close());
@@ -34,8 +35,12 @@ export function useWardrobe() {
 
   useEffect(() => {
     let closed = false;
-    void loadWardrobe().then(async (saved) => {
+    void loadWardrobe().then(async (stored) => {
       if (closed) return;
+      const saved = normalizeWardrobe(stored);
+      if (saved !== stored) saves.current = saveWardrobe(saved).catch(() => {
+        if (!closed) setStorageError("Couldn’t save the wardrobe to this browser.");
+      });
       const activePieces = saved.pieces.filter((piece) => saved.worn[piece.placement] === piece.id);
       for (const piece of activePieces) {
         const item = await decodeWardrobePiece(piece).catch(() => null);

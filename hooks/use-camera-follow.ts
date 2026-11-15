@@ -11,8 +11,9 @@ type MotionKey = keyof CameraMotion;
 type MotionValue = NonNullable<CameraMotion[MotionKey]>;
 type Sample = { candidate: MotionValue; since: number; seen: number; stable?: MotionValue };
 
-export function useCameraFollow({ openingScene, canSend, send }: {
+export function useCameraFollow({ openingScene, runId, canSend, send }: {
   openingScene?: string;
+  runId?: number;
   canSend: boolean;
   send: (payload: ReturnType<typeof cameraSteeringPayload>) => Promise<void>;
 }) {
@@ -22,7 +23,7 @@ export function useCameraFollow({ openingScene, canSend, send }: {
   const enabled = useRef(true);
   const samples = useRef(new Map<MotionKey, Sample>());
   const lastMotion = useRef("");
-  const latestEdits = useRef<string[]>([]);
+  const currentScene = useRef("");
   const sketch = useRef("");
   const lastSketch = useRef("");
   const nextUpdate = useRef(0);
@@ -69,9 +70,9 @@ export function useCameraFollow({ openingScene, canSend, send }: {
 
   const setSketchDirection = useCallback((value: string) => { sketch.current = value; }, []);
 
-  async function update(scene: string, edits: string[], direction: string, motion: CameraMotion) {
+  async function update(scene: string, sceneDirection: string, direction: string, motion: CameraMotion) {
     const version = runVersion.current;
-    await send(cameraSteeringPayload(scene.slice(0, CAMERA_SCENE_LIMIT), edits, direction, motion));
+    await send(cameraSteeringPayload(scene.slice(0, CAMERA_SCENE_LIMIT), sceneDirection ? [sceneDirection] : [], direction, motion));
     if (version === runVersion.current) {
       lastMotion.current = JSON.stringify(motion);
       lastSketch.current = direction;
@@ -93,7 +94,7 @@ export function useCameraFollow({ openingScene, canSend, send }: {
 
     const version = runVersion.current;
     nextUpdate.current = now + UPDATE_MS;
-    pending.current = update(openingScene, latestEdits.current, direction, motion).catch(() => {
+    pending.current = update(openingScene, currentScene.current, direction, motion).catch(() => {
       if (version !== runVersion.current) return;
       retryAt.current = performance.now() + 2_000;
       setError("Orbis couldn’t apply the live update. Retrying…");
@@ -109,12 +110,12 @@ export function useCameraFollow({ openingScene, canSend, send }: {
     lastMotion.current = "";
     lastSketch.current = "";
     sketch.current = "";
-    latestEdits.current = [];
+    currentScene.current = "";
     nextUpdate.current = 0;
     retryAt.current = 0;
     setError("");
     return () => { runVersion.current++; };
-  }, [openingScene]);
+  }, [openingScene, runId]);
 
   function changeFollowing(value: boolean) {
     enabled.current = value;
@@ -137,16 +138,15 @@ export function useCameraFollow({ openingScene, canSend, send }: {
     }
   }
 
-  async function applyEdit(edit: string) {
-    if (!openingScene || !canSend) return false;
+  async function applyEdit(sceneDirection: string) {
+    if (!openingScene || !canSend || !sceneDirection.trim() || sceneDirection.length > CAMERA_EDIT_LIMIT) return false;
     const version = runVersion.current;
     return (await withControls(async () => {
       if (version !== runVersion.current) return false;
-      const edits = [...latestEdits.current, edit.slice(0, CAMERA_EDIT_LIMIT)].slice(-3);
       try {
-        await update(openingScene, edits, sketch.current, currentMotion());
+        await update(openingScene, sceneDirection, sketch.current, currentMotion());
         if (version !== runVersion.current) return false;
-        latestEdits.current = edits;
+        currentScene.current = sceneDirection;
         return true;
       } catch {
         if (version === runVersion.current) setError("Orbis couldn’t apply the scene edit.");

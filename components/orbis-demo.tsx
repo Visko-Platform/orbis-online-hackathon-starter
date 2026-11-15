@@ -112,6 +112,8 @@ function OrbisSession({
           muted={session.muted}
           runStarted={session.runStarted}
           status={session.status}
+          timeline={session.timeline}
+          onFirstFrame={session.onFirstFrame}
         />
         <OrbisControls session={session} />
       </div>

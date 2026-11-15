@@ -3,12 +3,13 @@ import type { Wardrobe } from "@/lib/camera/wardrobe";
 import type { Environment } from "@/lib/looks/draft";
 import { DEFAULT_CAMERA_SCENE } from "@/lib/orbis-camera-motion";
 
-export function buildOpeningScene({ wardrobe, environment, referenceDirection, startingPrompt, hasCameraSignal }: {
+export function buildOpeningScene({ wardrobe, environment, referenceDirection, startingPrompt, hasCameraSignal, hasStartingImage }: {
   wardrobe: Wardrobe;
   environment?: Environment;
   referenceDirection: string;
   startingPrompt: string;
   hasCameraSignal: boolean;
+  hasStartingImage: boolean;
 }) {
   const extraDirection = startingPrompt.trim();
   const overlays = wardrobe.pieces
@@ -23,7 +24,7 @@ export function buildOpeningScene({ wardrobe, environment, referenceDirection, s
     description && `Environment: ${description}`,
     motion && `Environment motion: ${motion}`,
   ].filter(Boolean);
-  if (!extraDirection && !context.length && hasCameraSignal) context.push(DEFAULT_CAMERA_SCENE);
+  if (!extraDirection && !context.length && (hasCameraSignal || hasStartingImage)) context.push(DEFAULT_CAMERA_SCENE);
   if (environment?.is360 && (extraDirection || context.length)) {
     context.push("Allow a gradual camera pan when requested.");
   }

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { NextResponse } from "next/server";
 
 import { readBoundedBody, requireLocalRequest } from "@/lib/server/local-request";
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const environmentJson = formData.get("environment");
   const environment = typeof environmentJson === "string" ? JSON.parse(environmentJson) : null;
 
-  if (!(image instanceof File) || !image.type.startsWith("image/")) {
+  if (!(image instanceof File) || !image.size || !image.type.startsWith("image/")) {
     return NextResponse.json(
       { error: "A valid reference image is required" },
       { status: 400 },
@@ -47,15 +47,16 @@ export async function POST(request: Request) {
       { status: 413 },
     );
   }
-  if (typeof prompt !== "string" || !prompt.trim()) {
+  if (prompt !== null && typeof prompt !== "string") {
     return NextResponse.json(
-      { error: "A user prompt is required" },
+      { error: "The requested direction must be text" },
       { status: 400 },
     );
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { timeout: 20_000 } });
+    const direction = prompt?.trim();
     const environmentText = environment ? `
 Target environment: ${environment.description}
 Environment motion: ${environment.motion}
@@ -66,7 +67,8 @@ Panoramic/360 mode: ${environment.is360 ? "Enabled (allow camera panning/wide vi
       model: ORBIS_PROMPT_MODEL,
       contents: [
         {
-          text: `Requested motion:\n${prompt.trim()}\n${environmentText}`,
+          text: [direction && `Requested direction:\n${direction}`,
+            "Write the opening shot for this starting frame.", environmentText].filter(Boolean).join("\n"),
         },
         {
           inlineData: {
@@ -79,9 +81,8 @@ Panoramic/360 mode: ${environment.is360 ? "Enabled (allow camera panning/wide vi
         systemInstruction: ORBIS_PROMPT_SYSTEM_INSTRUCTION,
         temperature: 0.2,
         maxOutputTokens: 1_024,
-        thinkingConfig: {
-          thinkingBudget: 0,
-        },
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        abortSignal: request.signal,
       },
     });
 
@@ -115,7 +116,7 @@ Panoramic/360 mode: ${environment.is360 ? "Enabled (allow camera panning/wide vi
   } catch (caught) {
     console.error("Orbis prompt analysis failed", caught);
     return NextResponse.json(
-      { error: "Gemini could not analyze the image and user prompt" },
+      { error: "Gemini could not describe the starting image. Try again or enter a starting prompt." },
       { status: 502 },
     );
   }

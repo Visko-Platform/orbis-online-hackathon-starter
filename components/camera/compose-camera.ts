@@ -14,7 +14,7 @@ function drawJointAccessory(ctx: CanvasRenderingContext2D, accessory: CameraAcce
   ctx.drawImage(image, -width / 2, -height / 2, width, height);
 }
 
-export function composeCamera({ video, canvas, clean, ink, position, pieces, status, onFrame, motionTracking }: {
+export function composeCamera({ video, canvas, clean, ink, position, pieces, status, onFrame, motionTracking, onFistChange }: {
   video: HTMLVideoElement;
   canvas: HTMLCanvasElement;
   clean: HTMLCanvasElement;
@@ -22,8 +22,9 @@ export function composeCamera({ video, canvas, clean, ink, position, pieces, sta
   position: AccessoryPosition;
   pieces: () => CameraAccessory[];
   status: (message: string) => void;
-  onFrame: (source: HTMLCanvasElement) => void;
+  onFrame?: (source: HTMLCanvasElement) => void;
   motionTracking?: CameraMotionTracking;
+  onFistChange?: (held: boolean) => void;
 }) {
   const ctx = canvas.getContext("2d", { alpha: false })!;
   const camera = clean.getContext("2d")!;
@@ -38,7 +39,7 @@ export function composeCamera({ video, canvas, clean, ink, position, pieces, sta
     headwear: () => pieces().find(({ placement }) => placement === "head")?.headwear,
     updateFace: (value) => { face = value; },
     updateHands: (value) => { hands = value; },
-  }, motionTracking);
+  }, motionTracking, undefined, onFistChange);
   let frame = 0;
 
   function render() {
@@ -46,25 +47,27 @@ export function composeCamera({ video, canvas, clean, ink, position, pieces, sta
       drawCamera(camera, video);
       ctx.drawImage(clean, 0, 0);
       const upperBody = endTracking.upperBody();
+      const fullBody = endTracking.fullBody();
       position.anchors.clear();
       for (const accessory of pieces()) {
         const { id, placement } = accessory;
         const joint = position.jointFor(id);
         const jointAnchor = joint && ink.jointAnchor(joint);
         if (joint && !jointAnchor) continue;
-        const anchor = jointAnchor || (placement === "shoulders" ? ink.shoulder
+        const anchor = jointAnchor || (placement === "fullBody" ? fullBody?.shoulder
+          : placement === "shoulders" ? ink.shoulder
           : placement === "leftHand" || placement === "rightHand" ? hands[placement]
             : placement === "upperLip" ? face?.upperLip : face?.eyes);
         const offset = position.offset(id, anchor);
         ctx.save();
         ctx.translate(offset.x, offset.y);
         if (jointAnchor) drawJointAccessory(ctx, accessory, jointAnchor);
-        else drawAccessory(ctx, accessory, face, ink.shoulder, hands, upperBody);
+        else drawAccessory(ctx, accessory, face, ink.shoulder, hands, upperBody, fullBody);
         ctx.restore();
       }
       ink.draw(ctx);
       ink.drawOverlays?.(ctx);
-      onFrame(canvas);
+      onFrame?.(canvas);
     }
     frame = requestAnimationFrame(render);
   }

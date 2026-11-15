@@ -6,16 +6,17 @@ import { PROMPT_LIMIT, type GarmentContext, type IntentResult } from "@/lib/look
 import { requestIntent } from "@/lib/looks/requests";
 import { GarmentPrompt } from "./garment-prompt";
 import { LiveVoice } from "./live-voice";
+import { Voice } from "./voice";
 
 type AppliedEdit = { text: string; garmentId?: string };
 
-export function Steering({ runLook, openingScene, disabled, apply, onError, onLiveSpeech }: {
+export function Steering({ runLook, openingScene, disabled, apply, onError, holdToTalk }: {
   runLook?: LookDraft;
   openingScene: string;
   disabled?: boolean;
   apply: (prompt: string) => Promise<boolean>;
   onError: (error: string) => void;
-  onLiveSpeech?: (text: string) => boolean;
+  holdToTalk?: boolean;
 }) {
   const look = useLook();
   const garments = useRef<GarmentContext[]>(runLook ? garmentContext(runLook.layers) : []).current;
@@ -26,6 +27,7 @@ export function Steering({ runLook, openingScene, disabled, apply, onError, onLi
   const [busy, setBusy] = useState(false);
   const operation = useRef<AbortController | null>(null);
   const previous = useRef<AppliedEdit[]>([]);
+  const currentScene = useRef("");
   const fallback = useRef(false);
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
@@ -43,27 +45,30 @@ export function Steering({ runLook, openingScene, disabled, apply, onError, onLi
     const editable = question ? `${original}\n${instruction.trim()}`.slice(0, PROMPT_LIMIT) : original;
     const turns = question ? [{ question: question.question, answer: instruction.trim() }] : [];
     try {
-      const result: IntentResult = force ? { kind: "edit", text: instruction.trim() } : await requestIntent({
+      const manualScene = [currentScene.current, instruction.trim()].filter(Boolean).join("\n");
+      if (force && manualScene.length > PROMPT_LIMIT) throw new Error("Scene direction is too long. Shorten the edit and try again.");
+      const result: IntentResult = force ? { kind: "edit", text: instruction.trim(), sceneState: manualScene } : await requestIntent({
         mode: "steer", text: original, turns,
-        sceneContext: (previous.current.at(-1)?.text ?? openingScene).slice(0, PROMPT_LIMIT),
+        sceneContext: openingScene.slice(0, PROMPT_LIMIT), currentScene: currentScene.current,
         garments: garments.map((garment) => ({ ...garment,
           prompt: [garment.prompt, ...previous.current.filter((edit) => edit.garmentId === garment.id).slice(-3).map((edit) => edit.text)]
             .join("\n").slice(-PROMPT_LIMIT) })),
       }, job.signal);
       if (job.signal.aborted) return;
       if (result.kind === "question") { setQuestion({ first: original, question: result.text }); setText(""); return; }
-      if (result.kind !== "edit" || disabledRef.current) {
+      if (result.kind !== "edit" || !result.sceneState?.trim() || disabledRef.current) {
         fallback.current = true;
         setQuestion(null);
         setText(editable);
         return;
       }
-      const accepted = await apply(result.text);
+      const accepted = await apply(result.sceneState);
       if (!accepted && !job.signal.aborted) {
         setQuestion(null);
         setText(editable);
       }
       if (accepted && !job.signal.aborted) {
+        currentScene.current = result.sceneState;
         previous.current = [...previous.current, { text: result.text, garmentId: result.garmentId }];
         setEdits(previous.current);
         setText("");
@@ -83,6 +88,11 @@ export function Steering({ runLook, openingScene, disabled, apply, onError, onLi
   }
 
   const layer = look.layers.find((item) => item.id === preview?.garmentId);
+  function handleSpeech(speech: string) {
+    setText(speech);
+    fallback.current = false;
+    void steer(speech);
+  }
   return <>
     {edits.length > 0 && <ol ref={feed} className="live-history looks-edits" aria-label="Accepted edits">
       {edits.map((edit, index) => <li key={index}>{edit.text}{edit.garmentId && look.layers.some((item) => item.id === edit.garmentId) &&
@@ -94,12 +104,9 @@ export function Steering({ runLook, openingScene, disabled, apply, onError, onLi
         onChange={(event) => setText(event.target.value)} /></label>
       <div className="looks-row">
         <LiveVoice question={question?.question} disabled={disabled} busy={busy} onError={onError}
-          onTranscript={(speech) => {
-            if (!question && onLiveSpeech?.(speech)) return;
-            setText(speech);
-            fallback.current = false;
-            void steer(speech);
-          }} />
+          onTranscript={handleSpeech} />
+        {holdToTalk !== undefined && <Voice context={0} disabled={!!(disabled || busy)} held={holdToTalk}
+          gestureOnly onError={onError} onTranscript={handleSpeech} />}
         <button disabled={disabled || busy || !text.trim()}>{question ? "Answer" : "Apply edit"}</button>
         {busy && <span role="status">Preparing edit…</span>}
       </div>

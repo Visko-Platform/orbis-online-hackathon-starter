@@ -7,9 +7,12 @@ import { LiveVoice } from "@/components/looks/live-voice";
 import { OrbisPhotoSpace } from "@/components/orbis-photo-space";
 
 export function OrbisControls({ session }: { session: OrbisSession }) {
+  const needsImagePrompt = Boolean(session.image && (session.describingImage || !session.prompt.trim()));
+  const canStart = session.connected && !session.runStarted && !session.controlsBusy &&
+    !session.describingImage && Boolean(session.prompt.trim());
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void session.startRun();
+    if (canStart) void session.startRun();
   };
 
   return (
@@ -18,7 +21,7 @@ export function OrbisControls({ session }: { session: OrbisSession }) {
         {!session.connected ? (
           <button
             type="button"
-            disabled={session.controlsBusy}
+            disabled={session.controlsBusy || needsImagePrompt}
             onClick={session.connectSession}
           >
             Connect
@@ -78,7 +81,7 @@ export function OrbisControls({ session }: { session: OrbisSession }) {
         <div style={{ display: "flex", gap: "8px" }}>
           <textarea
             value={session.prompt}
-            placeholder="Enter prompt here"
+            placeholder={session.image ? undefined : "Enter prompt here"}
             onChange={(event) => session.setPrompt(event.target.value)}
             style={{ flexGrow: 1 }}
           />
@@ -93,14 +96,12 @@ export function OrbisControls({ session }: { session: OrbisSession }) {
       </label>
 
       <div className="button-row">
-        <button
-          type="submit"
-          disabled={
-            !session.connected || session.runStarted || session.controlsBusy
-          }
-        >
-          Start run
-        </button>
+        {session.describingImage && <span role="status">Describing starting image…</span>}
+        {session.image && !session.runStarted && !session.describingImage && (session.promptError || !session.prompt.trim()) &&
+          <button type="button" disabled={session.controlsBusy} onClick={() => session.selectImage(session.image)}>
+            {session.promptError ? "Retry image prompt" : "Generate image prompt"}
+          </button>}
+        <button type="submit" disabled={!canStart}>Start run</button>
         <button
           type="button"
           disabled={
@@ -148,6 +149,7 @@ export function OrbisControls({ session }: { session: OrbisSession }) {
         </button>
       </div>
 
+      {session.promptError && <p className="error" role="alert">{session.promptError}</p>}
       {session.error && <p className="error">{session.error}</p>}
       <aside>
         <strong>Recent model events</strong>

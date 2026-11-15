@@ -48,7 +48,7 @@ export function useMotionPrompt() {
   } };
 }
 
-export function MotionPrompt({ prompt, setPrompt, actions, review, busy, disabled, label, placeholder }: {
+export function MotionPrompt({ prompt, setPrompt, actions, review, busy, disabled, label, placeholder, voiceHeld }: {
   prompt: string;
   setPrompt: (text: string) => void;
   actions: ReactNode;
@@ -57,6 +57,7 @@ export function MotionPrompt({ prompt, setPrompt, actions, review, busy, disable
   disabled?: boolean;
   label?: string;
   placeholder?: string;
+  voiceHeld?: boolean;
 }) {
   const [error, setError] = useState("");
   const fieldLabel = label ?? (review ? "Orbis motion prompt" : "Describe motion");
@@ -66,7 +67,8 @@ export function MotionPrompt({ prompt, setPrompt, actions, review, busy, disable
         rows={review ? 4 : 2} placeholder={placeholder} disabled={disabled} />
     </label>
     <div className="looks-row">
-      <Voice context={0} disabled={!!(busy || disabled)} onError={setError} onTranscript={(text) => { setError(""); setPrompt(text); }} />
+      <Voice context={0} disabled={!!(busy || disabled)} held={voiceHeld} gestureOnly={voiceHeld !== undefined}
+        onError={setError} onTranscript={(text) => { setError(""); setPrompt(text); }} />
       {actions}
       {busy && <span role="status">Preparing motion…</span>}
     </div>

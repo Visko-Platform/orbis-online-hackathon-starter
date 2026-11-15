@@ -7,7 +7,7 @@ import { JointPicker } from "./joint-picker";
 import styles from "./studio.module.css";
 
 const drawingLayers: Record<Follow, string> = {
-  off: "Canvas ink", shoulders: "Shoulder ink", face: "Face ink", joint: "Landmark ink", hat: "3D hat drawing", garment: "3D garment drawing",
+  off: "Canvas ink", headAndShoulders: "Head and shoulder ink", shoulders: "Shoulder ink", face: "Face ink", joint: "Landmark ink", hat: "3D hat drawing", garment: "3D garment drawing",
 };
 
 export function CameraOverlays({ ink, wardrobe, follow, changeFollow, movingId, onMove, position }: {
@@ -31,6 +31,7 @@ export function CameraOverlays({ ink, wardrobe, follow, changeFollow, movingId, 
 
   return <section className={styles.overlays} aria-label="Camera overlays">
     <p>{movingId ? "Drag on the video to reposition." : "Camera overlays"}</p>
+    {!movingId && worn.fullBody && <p>Keep your shoulders and ankles in frame.</p>}
     <ul className={styles.layerList}>
       {layers.map((layer) => <li key={layer}>
         {drawingLayers[layer]}
@@ -41,7 +42,7 @@ export function CameraOverlays({ ink, wardrobe, follow, changeFollow, movingId, 
       </li>)}
       {activePieces.map(({ id, placement, prompt }) => <li key={id}>
         <span>{accessoryPlacements[placement].label} · {prompt}</span>
-        {placement !== "head" && <label>Follow joint <JointPicker accessory label={`Follow joint for ${prompt}`}
+        {placement !== "head" && placement !== "fullBody" && <label>Follow joint <JointPicker accessory label={`Follow joint for ${prompt}`}
           value={position.jointFor(id)} onChange={(joint) => position.setJoint(id, joint)} /></label>}
         {onMove && placement !== "head" && <button type="button"
           aria-pressed={movingId === id}

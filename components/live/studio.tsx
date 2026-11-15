@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ReactorProvider, useReactor } from "@reactor-team/js-sdk";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { MotionPrompt, useMotionPrompt } from "@/components/looks/motion-prompt";
 import { LookImage } from "@/components/looks/images";
 import { Steering } from "@/components/looks/steering";
@@ -13,10 +13,11 @@ import { OrbisPhotoSpace } from "@/components/orbis-photo-space";
 import { useCameraFollow } from "@/hooks/use-camera-follow";
 import { usePinchLayers } from "@/hooks/use-pinch-layers";
 import { SketchImageChoices } from "./sketch-images";
+import { SetupGuide } from "./setup-guide";
 import { useLiveSketch } from "@/hooks/use-live-sketch";
 import { Ink } from "@/lib/camera/ink";
 import { ORBIS_MODEL_NAME, ORBIS_TRACKS, requestReactorJwt } from "@/lib/orbis";
-import { describeCameraMotion } from "@/lib/orbis-camera-motion";
+import { DEFAULT_CAMERA_SCENE, describeCameraMotion } from "@/lib/orbis-camera-motion";
 import { RenderOutput, useOBSWindow } from "./output";
 import type { LockedHat } from "@/lib/camera/locked-hat";
 import { Source } from "./source";
@@ -64,10 +65,13 @@ function Workspace({ readToken, clearToken }: {
   clearToken: () => void;
 }) {
   const accessoryCamera = useRef<HTMLVideoElement>(null);
+  const cameraActions = useRef<{ start: () => void; stop: () => void; capture: () => void;
+    prepare: () => Promise<{ image: File; direction: string } | null> } | null>(null);
   const session = useOrbisSession(clearToken, readToken);
   const disconnect = useReactor((state) => state.disconnect);
   const output = useOBSWindow();
-  const [liveInk] = useState(() => new Ink());
+  const [liveInk] = useState(() => { const value = new Ink(); value.follow = "headAndShoulders"; return value; });
+  useSyncExternalStore(liveInk.subscribeDrawing, liveInk.drawingRevision, () => 0);
   const [sketch] = useState(() => new Ink());
   const wardrobe = useWardrobe();
   const [designMode, setDesignMode] = useState<"draw" | "generate" | "environment">("draw");
@@ -77,12 +81,19 @@ function Workspace({ readToken, clearToken }: {
   const [color, setColor] = useState(colors[0][1]);
   const look = useLook();
   const motion = useMotionPrompt();
-  const [run, setRun] = useState<{ look?: LookDraft; openingScene: string; hat?: LockedHat } | null>(null);
+  const nextRunId = useRef(0);
+  const [run, setRun] = useState<{ id: number; look?: LookDraft; openingScene: string; hat?: LockedHat } | null>(null);
   const [error, setError] = useState("");
   const [capturing, setCapturing] = useState(false);
   const [preparingCamera, setPreparingCamera] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [fistHeld, setFistHeld] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const redraw = useCallback(() => setRevision((value) => value + 1), []);
-  const busy = session.controlsBusy || capturing || preparingCamera;
+  const busy = session.controlsBusy || capturing || preparingCamera || updating || stopping;
 
   useEffect(() => () => { void disconnect().catch(() => {}); }, [disconnect]);
   useEffect(() => {
@@ -103,23 +114,30 @@ function Workspace({ readToken, clearToken }: {
   const startingImage = motion.draft?.image ?? session.image;
   const activeRun = session.runStarted ? run : null;
   const canSteer = session.connected && !session.paused && !busy;
-  const camera = useCameraFollow({ openingScene: activeRun?.openingScene,
+  const camera = useCameraFollow({ openingScene: activeRun?.openingScene, runId: activeRun?.id,
     canSend: canSteer, send: session.sendSteeringPrompt });
   const pinch = usePinchLayers(liveInk);
   const liveSketch = useLiveSketch({ ink: liveInk, openingScene: activeRun?.openingScene,
     canSend: canSteer, setDirection: camera.setSketchDirection, layers: pinch.layers, pendingPinch: pinch.pending });
   const environment = motion.draft ? undefined : look.environment;
   const capturedDirection = motion.draft ? "" : referenceDirection;
+  const hasCameraFallback = cameraReady && !startingImage;
+  const designDirection = liveInk.hasVisibleDrawing || pinch.layers.some(({ selected }) => selected)
+    ? ["Turn the camera sketch into a physical feature at the drawn size and position.",
+      ...new Set(pinch.layers.map(({ transcript }) => transcript.trim()).filter(Boolean))].join(" ").slice(0, 1_500)
+    : "";
   const { inheritedPrompt, openingScene } = useMemo(() => buildOpeningScene({
-    wardrobe: wardrobe.wardrobe, environment, referenceDirection: capturedDirection, startingPrompt, hasCameraSignal: camera.hasSignal,
-  }), [wardrobe.wardrobe, environment, capturedDirection, startingPrompt, camera.hasSignal]);
+    wardrobe: wardrobe.wardrobe, environment, referenceDirection: capturedDirection, startingPrompt,
+    hasCameraSignal: hasCameraFallback, hasStartingImage: !!startingImage,
+  }), [wardrobe.wardrobe, environment, capturedDirection, startingPrompt, hasCameraFallback, startingImage]);
+  const needsImagePrompt = !!startingImage && (session.describingImage || !startingPrompt.trim());
+  const canStart = Boolean(openingScene && !needsImagePrompt);
   const renderStatus = session.status === "waiting" ? "Waiting for Orbis…"
     : session.status === "connecting" ? "Connecting to Orbis…"
     : session.controlsBusy ? "Starting scene…"
-    : openingScene ? "Ready to start" : "Enter a starting prompt";
+    : canStart ? "Ready to start" : startingImage ? "Waiting for starting prompt…" : "Add a starting image or prompt";
 
   function chooseReference(image: File | null, direction = "", hat?: LockedHat) {
-    if (motion.draft) session.setPrompt(motion.draft.prompt);
     motion.clear();
     session.selectImage(image);
     setReferenceDirection(direction);
@@ -127,14 +145,69 @@ function Workspace({ readToken, clearToken }: {
   }
 
   async function start() {
-    if (!openingScene || stale || busy || motion.busy || !wardrobe.ready) return;
+    if (!canStart || stale || busy || motion.busy || !wardrobe.ready) return;
+    let image = startingImage;
+    let sceneText = openingScene;
+    let preparedDirection = "";
+    if (!image && cameraReady && (wardrobe.worn.current.length || liveInk.hasVisibleDrawing)) {
+      const prepared = await cameraActions.current?.prepare();
+      if (!prepared) return;
+      image = prepared.image;
+      preparedDirection = prepared.direction;
+      sceneText = buildOpeningScene({ wardrobe: wardrobe.wardrobe, environment,
+        referenceDirection: prepared.direction, startingPrompt, hasCameraSignal: true,
+        hasStartingImage: true }).openingScene;
+    }
     const pose = describeCameraMotion(camera.currentMotion());
-    const openingPrompt = pose ? `${openingScene}\n\nThe character opens in this pose. ${pose}` : openingScene;
-    const draft = motion.draft;
-    const accepted = await camera.withControls(() => session.startScene(startingImage, openingPrompt));
-    if (accepted) {
-      setRun({ look: draft?.look, openingScene, hat: draft ? undefined : referenceHat });
+    const poseDirection = pose ? `The character opens in this pose. ${pose}` : undefined;
+    const scene = await camera.withControls(() => session.startScene(image, sceneText, poseDirection));
+    if (scene) {
+      if (image !== startingImage && image) {
+        session.loadPreparedImage(image, startingPrompt || DEFAULT_CAMERA_SCENE);
+        setReferenceDirection(preparedDirection);
+      }
+      setRun({ id: ++nextRunId.current, look: motion.draft?.look, openingScene: scene, hat: motion.draft ? undefined : referenceHat });
       setError("");
+    }
+  }
+
+  async function updateRender() {
+    if (!session.runStarted || !cameraReady || busy) return;
+    setUpdating(true);
+    setError("");
+    try {
+      const prepared = await cameraActions.current?.prepare();
+      if (!prepared) return;
+      const sceneText = buildOpeningScene({ wardrobe: wardrobe.wardrobe, environment,
+        referenceDirection: prepared.direction, startingPrompt,
+        hasCameraSignal: true, hasStartingImage: true }).openingScene;
+      const scene = await camera.withControls(async () => {
+        if (!await session.reset()) return null;
+        return session.startScene(prepared.image, sceneText);
+      });
+      if (!scene) return;
+      motion.clear();
+      session.loadPreparedImage(prepared.image, startingPrompt || DEFAULT_CAMERA_SCENE);
+      setReferenceDirection(prepared.direction);
+      setRun({ id: ++nextRunId.current, look: motion.draft?.look, openingScene: scene });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Couldn’t update the render.");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function stopLive() {
+    if (stopping) return;
+    setStopping(true);
+    camera.changeFollowing(false);
+    cameraActions.current?.stop();
+    pinch.stop();
+    try {
+      if (session.status !== "disconnected") await session.disconnectSession();
+      setRun(null);
+    } finally {
+      setStopping(false);
     }
   }
 
@@ -159,51 +232,53 @@ function Workspace({ readToken, clearToken }: {
       <Link href="/">Starter</Link><Link href="/looks">Looks</Link><Link href="/camera">Camera Studio</Link>
     </nav></header>
     <div className="live-grid">
+      <SetupGuide cameraReady={cameraReady} cameraStarting={cameraStarting} cameraError={cameraError}
+        driveOn={camera.following} trackingReady={camera.hasSignal} sketchOn={liveSketch.enabled}
+        generateSketchImages={pinch.generate} microphone={pinch.micAccess}
+        microphoneError={pinch.micAccess === "idle" ? pinch.error : ""}
+        imageReady={!!startingImage} preparingImage={preparingCamera || capturing}
+        generationStatus={session.controlsBusy ? "Starting scene…" : session.status === "connecting" ? "Connecting to Orbis…" : session.error}
+        canStartGeneration={canStart && !stale && wardrobe.ready && !busy && !motion.busy}
+        generationBusy={busy || motion.busy} running={session.runStarted}
+        connected={session.connected || session.status === "connecting" || session.status === "waiting"}
+        stopping={stopping} updating={updating}
+        startCamera={() => cameraActions.current?.start()} stopCamera={() => cameraActions.current?.stop()}
+        captureCamera={() => cameraActions.current?.capture()} startGeneration={() => void start()}
+        stopLive={() => void stopLive()} updateRender={() => void updateRender()}
+        toggleDrive={() => camera.changeFollowing(!camera.following)}
+        toggleSketch={() => { if (liveSketch.enabled) pinch.stop(); liveSketch.toggle(); }}
+        toggleGenerateSketchImages={pinch.toggleGeneration}
+        enableMicrophone={() => void pinch.enableMicrophone()} />
       <section className="live-camera" aria-label="Live camera">
         <div className="live-bar"><h2>Live camera</h2><div className="live-tools">
           {camera.following && <span role="status" className="live-placeholder">
             {camera.hasSignal ? "Motion tracking ready" : "Waiting for motion"}</span>}
-          <button type="button" aria-pressed={camera.following} title="Steer the render from camera motion"
-            onClick={() => camera.changeFollowing(!camera.following)}>Drive Orbis</button>
-          <button type="button" aria-pressed={liveSketch.enabled}
-            title="Describe pinch drawings with the microphone and send sketch edits to Gemini"
-            onClick={() => { if (liveSketch.enabled) pinch.stop(); liveSketch.toggle(); }}>Live sketch</button>
-          {liveSketch.enabled && <button type="button" disabled={pinch.micAccess !== "idle"}
-            onClick={() => void pinch.enableMicrophone()}>
-            {pinch.micAccess === "ready" ? "Microphone ready" : pinch.micAccess === "requesting" ? "Enabling microphone…" : "Enable microphone"}
-          </button>}
-          {liveSketch.enabled && <button type="button" aria-pressed={pinch.generate}
-            onClick={pinch.toggleGeneration}>Generate images</button>}
+          {fistHeld && <span role="status" className="live-placeholder">Listening…</span>}
           {liveSketch.working && <span role="status" className="live-sr">Reading live sketch</span>}
         </div></div>
-        <CameraStudio accessoryCamera={accessoryCamera} sharedInk={liveInk} wardrobe={wardrobe} onCameraReference={chooseReference}
+        <CameraStudio accessoryCamera={accessoryCamera} sharedInk={liveInk} wardrobe={wardrobe}
+          actionsRef={cameraActions} onCameraStarting={setCameraStarting}
+          onFistChange={setFistHeld}
+          onCameraReference={chooseReference} onCameraStatus={setCameraError}
+          designDirection={designDirection}
           background={look.environmentImage} motionTracking={camera.tracking} onCameraSource={(source) => {
+            setCameraReady(!!source);
             liveSketch.setSource(source);
             if (!source) pinch.stop();
           }}
-          referenceDisabled={busy || session.runStarted} onReferenceBusy={setPreparingCamera} />
+          referenceDisabled={busy} onReferenceBusy={setPreparingCamera} />
         {(pinch.caption || pinch.micStatus) && <output aria-live={pinch.caption ? "off" : "polite"} className="live-sketch-caption">
           {pinch.caption || pinch.micStatus}
         </output>}
         <SketchImageChoices layers={pinch.layers} select={pinch.select} />
       </section>
-      <div className="live-connections" aria-label="Connections">
-        <button className="live-primary" disabled={busy} onClick={() => {
-          if (session.connected) {
-            void camera.withControls(session.disconnectSession);
-          } else {
-            void session.connectSession();
-          }
-        }} title={session.connected ? "Disconnect Orbis" : "Connect Orbis"}>
-          {session.connected ? "Disconnect" : "Connect Orbis"}
-        </button>
-      </div>
       <div className="live-output">
         <section aria-label="Orbis render">
           <div className="live-bar"><h2>Render</h2><button title="Open the render-only OBS window"
             onClick={() => setError(output.open() ? "" : "Allow pop-ups to open the OBS output.")}>OBS ↗</button></div>
           <RenderOutput running={session.runStarted} muted={session.muted} container={output.container}
-            hat={activeRun?.hat} status={renderStatus} layers={pinch.layers} />
+            hat={activeRun?.hat} status={renderStatus} layers={pinch.layers}
+            timeline={session.timeline} onFirstFrame={session.onFirstFrame} />
           {session.error && <p role="alert">{session.error}</p>}
         </section>
         <section className="live-steer" aria-label={activeRun ? "Steering chat" : "Start scene"}>
@@ -218,6 +293,7 @@ function Workspace({ readToken, clearToken }: {
               <summary title="Settings" aria-label="Settings">⚙</summary>
               <div>
                 <button onClick={session.toggleMuted}>{session.muted ? "Enable sound" : "Mute"}</button>
+                {session.connected && <button onClick={() => void camera.withControls(session.disconnectSession)}>Disconnect Orbis</button>}
                 <label>Next-run resolution<select disabled={session.runStarted || busy} value={session.resolution}
                   onChange={(event) => session.setResolution(event.target.value)}>
                   <option value="">Fast ({session.preferredResolution})</option>
@@ -226,24 +302,29 @@ function Workspace({ readToken, clearToken }: {
               </div>
             </details>
           </div></div>
-          {activeRun ? <Steering runLook={activeRun.look} openingScene={activeRun.openingScene}
+          {activeRun ? <Steering key={activeRun.id} runLook={activeRun.look} openingScene={activeRun.openingScene}
             disabled={session.paused || !session.connected}
-            apply={camera.applyEdit} onLiveSpeech={liveSketch.useSpeech}
+            holdToTalk={fistHeld}
+            apply={camera.applyEdit}
             onError={setError} /> :
             <>
               {inheritedPrompt && <details className="live-opening-context" open>
                 <summary>From your studio</summary>
                 <div tabIndex={0}>{inheritedPrompt}</div>
               </details>}
-              <MotionPrompt prompt={startingPrompt} label={inheritedPrompt && !motion.draft ? "Additional direction (optional)" : "Starting prompt"}
-              placeholder={inheritedPrompt ? undefined : "A person stands beside a window in a steady medium shot."}
+              <MotionPrompt prompt={startingPrompt} label="Starting prompt" voiceHeld={fistHeld}
+              placeholder={startingImage || inheritedPrompt ? undefined : "A person stands beside a window in a steady medium shot."}
               setPrompt={(prompt) => motion.draft ? motion.setDraft({ ...motion.draft, prompt }) : session.setPrompt(prompt)}
-              review={!!motion.draft} busy={motion.busy} disabled={busy} actions={<>
-                {stale ? <button disabled={busy || motion.busy || !look.layers.some((layer) => layer.accepted)}
-                  onClick={() => void motion.prepare(look, startingPrompt || DEFAULT_MOTION)}>Refresh starting prompt</button> :
-                  <button className="live-primary" disabled={busy || motion.busy || !openingScene || !wardrobe.ready}
-                    onClick={() => void start()}>Start scene</button>}
+              review={!!startingImage} busy={motion.busy} disabled={busy} actions={<>
+                {session.describingImage && <span role="status">Describing starting image…</span>}
+                {startingImage && !motion.draft && !session.describingImage && (session.promptError || !startingPrompt.trim()) &&
+                  <button type="button" disabled={busy} onClick={() => session.selectImage(startingImage)}>
+                    {session.promptError ? "Retry image prompt" : "Generate image prompt"}
+                  </button>}
+                {stale && <button disabled={busy || motion.busy || !look.layers.some((layer) => layer.accepted)}
+                  onClick={() => void motion.prepare(look, startingPrompt || DEFAULT_MOTION)}>Refresh starting prompt</button>}
               </>} />
+              {session.promptError && <p role="alert">{session.promptError}</p>}
             </>}
           {!activeRun && <div className="live-look-reference">
             {startingImage ? <>
@@ -274,13 +355,8 @@ function Workspace({ readToken, clearToken }: {
         {designMode === "draw" && <Source ink={sketch} revision={revision} update={redraw} label="Blank drawing canvas" />}
         <div hidden={designMode !== "generate"}><AccessoryControls controls={wardrobe} camera={accessoryCamera} /></div>
         {designMode === "environment" && <EnvironmentPrompt look={look} sketch={sketch} referenceAction={
-          <button type="button" disabled={busy || motion.busy || session.runStarted} onClick={() => {
-            if (!look.environmentImage) return;
-            chooseReference(look.environmentImage);
-            if (![startingPrompt, look.environment.description, look.environment.motion].some((text) => text.trim())) {
-              session.setPrompt("Hold on the environment and show its natural motion.");
-            }
-          }}>Use as starting image</button>
+          <button type="button" disabled={busy || motion.busy || session.runStarted}
+            onClick={() => chooseReference(look.environmentImage ?? null)}>Use as starting image</button>
         }>
           <Source ink={sketch} revision={revision} update={redraw} label="Environment sketch" />
         </EnvironmentPrompt>}

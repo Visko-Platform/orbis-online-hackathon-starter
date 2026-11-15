@@ -9,7 +9,7 @@ import { fromAnchor, toAnchor } from "./anchor-transform";
 
 export type Point = { x: number; y: number };
 export type Shoulder = { center: Point; angle: number; width: number };
-export type Follow = "off" | "shoulders" | "face" | "joint" | SurfaceMode;
+export type Follow = "off" | "headAndShoulders" | "shoulders" | "face" | "joint" | SurfaceMode;
 type FlatStroke = { points: (FacePoint | null)[]; follow: Exclude<Follow, SurfaceMode>; color: string; joint?: JointId };
 type Stroke = FlatStroke | SurfaceStroke;
 const isSurface = (stroke: Stroke): stroke is SurfaceStroke => stroke.follow === "hat" || stroke.follow === "garment";
@@ -125,6 +125,7 @@ export class Ink {
       return !this.surfaceUnavailable && !!this.scene?.objects.some((object) => object.mode === this.follow);
     }
     if (this.follow === "joint") return !!this.jointAnchor(this.joint);
+    if (this.follow === "headAndShoulders") return !!this.face || !!this.shoulder;
     return this.follow === "off" || (this.follow === "face" ? !!this.face : !!this.shoulder);
   }
 
@@ -150,7 +151,8 @@ export class Ink {
   }
 
   follows(mode: Follow) {
-    return this.follow === mode || this.finished.some((stroke) => stroke.follow === mode) ||
+    return this.follow === mode || this.follow === "headAndShoulders" && (mode === "face" || mode === "shoulders") ||
+      this.finished.some((stroke) => stroke.follow === mode) ||
       Array.from(this.active.values()).some((stroke) => stroke.follow === mode);
   }
 
@@ -209,7 +211,10 @@ export class Ink {
       return;
     }
     if (action === "start" && point) {
-      const follow = hatScene ? "hat" : this.follow;
+      const follow = hatScene ? "hat" : this.follow === "headAndShoulders"
+        ? this.shoulder && point.y * HEIGHT >= this.shoulder.center.y - this.shoulder.width * 0.25
+          ? "shoulders" : this.face ? "face" : "shoulders"
+        : this.follow;
       const surfaceMode = follow === "hat" || follow === "garment";
       if (follow === "joint" && !this.canStart) return;
       if (!this.canStart && !surfaceMode && !source.startsWith("hand:")) return;

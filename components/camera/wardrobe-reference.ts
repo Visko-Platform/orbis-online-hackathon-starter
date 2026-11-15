@@ -4,8 +4,8 @@ import { canvasBlob } from "@/lib/camera/frame";
 import { headViews, type HeadPhotos } from "@/lib/camera/head-views";
 import { responseError } from "@/lib/looks/requests";
 export async function prepareWardrobeReference(frame: Blob, pieces: CameraAccessory[], signal: AbortSignal,
-  { headPhotos, hat, environment, background, sketch }: { headPhotos: HeadPhotos; hat?: Blob; environment?: string; background?: File; sketch?: boolean }) {
-  if (!pieces.length && !hat && !Object.keys(headPhotos).length && !environment && !background && !sketch) {
+  { headPhotos, hat, environment, background, sketch, designDirection }: { headPhotos: HeadPhotos; hat?: Blob; environment?: string; background?: File; sketch?: boolean; designDirection?: string }) {
+  if (!pieces.length && !hat && !Object.keys(headPhotos).length && !environment && !background && !sketch && !designDirection) {
     return { image: new File([frame], "Camera drawing.jpg", { type: "image/jpeg" }), direction: "" };
   }
   const body = new FormData();
@@ -13,8 +13,10 @@ export async function prepareWardrobeReference(frame: Blob, pieces: CameraAccess
   if (environment) body.append("environment", environment);
   if (background) body.append("background", background);
   if (sketch) body.append("source", "sketch");
+  if (pieces.some(({ placement }) => placement === "fullBody")) body.append("replaceClothing", "true");
 
   const directions = pieces.map(({ placement, prompt }) => describeAccessory(placement, prompt));
+  if (designDirection) directions.push(designDirection);
   if (hat) {
     body.append("hat", hat, "drawn-hat.jpg");
     directions.push("Keep the hat's crown, brim, and painted markings in the same physical positions as the person turns.");

@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export function Voice({ context, disabled, onTranscript, onError }: {
+export function Voice({ context, disabled, onTranscript, onError, held = false, gestureOnly = false }: {
   context: number;
   disabled: boolean;
   onTranscript: (text: string) => void;
   onError: (text: string) => void;
+  held?: boolean;
+  gestureOnly?: boolean;
 }) {
   const active = useRef<AbortController | null>(null);
   const stop = useRef<(() => void) | null>(null);
@@ -66,8 +68,10 @@ export function Voice({ context, disabled, onTranscript, onError }: {
     }
   }
 
+  useEffect(() => { if (held) void record(); else stop.current?.(); }, [held]);
+
   return <>
-    <button type="button" disabled={disabled} aria-label="Hold to talk"
+    {!gestureOnly && <button type="button" disabled={disabled} aria-label="Hold to talk"
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -84,7 +88,7 @@ export function Voice({ context, disabled, onTranscript, onError }: {
       onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") stop.current?.(); }}
       onBlur={() => stop.current?.()}>
       {status || "Hold to talk"}
-    </button>
+    </button>}
     <span className="looks-sr" role="status">{status}</span>
   </>;
 }

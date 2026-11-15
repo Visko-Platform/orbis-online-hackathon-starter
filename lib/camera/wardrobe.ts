@@ -1,10 +1,32 @@
-import type { AccessoryPlacement } from "./accessory";
+import { resolveAccessoryPlacement, type AccessoryPlacement } from "./accessory";
 import type { CameraAccessory } from "./accessory-overlay";
 
 export type WardrobePiece = { id: string; prompt: string; placement: AccessoryPlacement; sheet: Blob };
 export type Outfit = { id: string; name: string; worn: Partial<Record<AccessoryPlacement, string>> };
 export type Wardrobe = { pieces: WardrobePiece[]; worn: Outfit["worn"]; outfits?: Outfit[]; environment?: string };
 export const emptyWardrobe: Wardrobe = { pieces: [], worn: {} };
+
+export function normalizeWardrobe(wardrobe: Wardrobe): Wardrobe {
+  const changed = wardrobe.pieces.filter((piece) => piece.placement === "shoulders" &&
+    resolveAccessoryPlacement(piece.prompt, piece.placement) === "fullBody");
+  if (!changed.length) return wardrobe;
+  const moved = new Set(changed.map(({ id }) => id));
+  const moveWorn = (worn: Wardrobe["worn"]) => {
+    const next = { ...worn };
+    if (next.shoulders && moved.has(next.shoulders)) {
+      next.fullBody ||= next.shoulders;
+      delete next.shoulders;
+    }
+    return next;
+  };
+  return {
+    ...wardrobe,
+    pieces: wardrobe.pieces.map((piece) => moved.has(piece.id)
+      ? { ...piece, placement: resolveAccessoryPlacement(piece.prompt, piece.placement) } : piece),
+    worn: moveWorn(wardrobe.worn),
+    outfits: wardrobe.outfits?.map((outfit) => ({ ...outfit, worn: moveWorn(outfit.worn) })),
+  };
+}
 
 async function wardrobeDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -43,7 +65,9 @@ export async function saveWardrobe(wardrobe: Wardrobe) {
 }
 
 export function wornAccessories(wardrobe: Wardrobe, decoded: Map<string, CameraAccessory>) {
-  return Object.values(wardrobe.worn).flatMap((id) => {
+  const { fullBody, ...layers } = wardrobe.worn;
+  return [fullBody, ...Object.values(layers)].flatMap((id) => {
+    if (!id) return [];
     const piece = decoded.get(id);
     return piece ? [piece] : [];
   });

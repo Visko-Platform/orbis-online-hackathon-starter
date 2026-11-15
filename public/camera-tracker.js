@@ -43,7 +43,7 @@ function load(kind) {
 }
 
 load("hand");
-self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody, motion } }) => {
+self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody, motion, gesture } }) => {
   if (face) load("face");
   if (shoulders || hat || garment || fullBody || motion) load("pose");
   const result = { type: "frame", time, fullBody, motion };
@@ -60,7 +60,7 @@ self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody
           result.hands = sample.landmarks.map((points, index) => ({
             side: sample.handedness[index]?.[0]?.categoryName,
             wrist: points[0], thumb: points[4], tip: points[8], knuckle: points[9],
-            ...(fullBody && { points, confidence: sample.handedness[index]?.[0]?.score }),
+            ...((fullBody || gesture) && { points, confidence: sample.handedness[index]?.[0]?.score }),
           }));
         }
         if (kind === "pose" && sample.landmarks[0]) {

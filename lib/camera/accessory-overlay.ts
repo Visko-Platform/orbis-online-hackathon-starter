@@ -3,6 +3,7 @@ import type { Point, Shoulder } from "./ink";
 import { drawEyewear, type EyewearPose } from "./eyewear";
 import { focalLength } from "./surface-scene";
 import type { Headwear } from "./headwear";
+import { drawFullBody, estimateFullBody, type FullBody } from "./full-body";
 import { drawUpperBody, type GarmentFit, type UpperBody } from "./upper-body";
 
 export type CameraAccessory = {
@@ -78,7 +79,13 @@ export function drawAccessory(
   shoulders: Shoulder | undefined,
   hands: AccessoryHands,
   upperBody?: UpperBody,
+  fullBody?: FullBody,
 ) {
+  if (placement === "fullBody") {
+    const body = fullBody ?? (upperBody && estimateFullBody(upperBody));
+    if (body && garmentFit) drawFullBody(ctx, views[0], garmentFit, body);
+    return;
+  }
   if (placement === "shoulders") {
     drawUpperBody(ctx, views[0], garmentFit, upperBody, shoulders);
     return;
@@ -120,13 +127,18 @@ export function drawAccessory(
   ctx.restore();
 }
 
-export async function cutOutAccessory(blob: Blob, index?: number) {
+export async function cutOutAccessory(blob: Blob, index?: number, placement?: AccessoryPlacement) {
   const source = await createImageBitmap(blob);
   const col = (index ?? 0) % 3, row = Math.floor((index ?? 0) / 3);
   const columns = index === undefined ? 1 : 3, rows = index === undefined ? 1 : 2;
-  const left = Math.floor(source.width * col / columns), top = Math.floor(source.height * row / rows);
-  const width = Math.floor(source.width * (col + 1) / columns) - left;
-  const height = Math.floor(source.height * (row + 1) / rows) - top;
+  const cellLeft = Math.floor(source.width * col / columns), cellTop = Math.floor(source.height * row / rows);
+  const cellWidth = Math.floor(source.width * (col + 1) / columns) - cellLeft;
+  const cellHeight = Math.floor(source.height * (row + 1) / rows) - cellTop;
+  // Some portrait sheets include dividers. Leave them in the cell's green gutter.
+  const inset = placement === "fullBody" && index !== undefined ? 0.02 : 0;
+  const insetX = Math.floor(cellWidth * inset), insetY = Math.floor(cellHeight * inset);
+  const left = cellLeft + insetX, top = cellTop + insetY;
+  const width = cellWidth - insetX * 2, height = cellHeight - insetY * 2;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -174,10 +186,10 @@ export async function cutOutAccessory(blob: Blob, index?: number) {
   return createImageBitmap(canvas, minX, minY, maxX - minX + 1, maxY - minY + 1);
 }
 
-export async function decodeAccessory(sheet: Blob) {
+export async function decodeAccessory(sheet: Blob, placement?: AccessoryPlacement) {
   const views: ImageBitmap[] = [];
   try {
-    for (const index of accessoryViews.keys()) views.push(await cutOutAccessory(sheet, index));
+    for (const index of accessoryViews.keys()) views.push(await cutOutAccessory(sheet, index, placement));
     return views;
   } catch (error) {
     views.forEach((view) => view.close());

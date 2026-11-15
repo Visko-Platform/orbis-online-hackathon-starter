@@ -15,7 +15,7 @@ function PiecePreview({ piece, angle }: { piece: WardrobePiece; angle: number })
     let open = true;
     const ctx = canvas.current?.getContext("2d");
     ctx?.clearRect(0, 0, 220, 132);
-    void cutOutAccessory(piece.sheet, angle).then((view) => {
+    void cutOutAccessory(piece.sheet, angle, piece.placement).then((view) => {
       if (open && ctx) {
         const scale = Math.min(208 / view.width, 120 / view.height);
         const width = view.width * scale, height = view.height * scale;
@@ -78,7 +78,7 @@ export function AccessoryControls({ controls, camera }: { controls: WardrobeCont
     });
     if (!response.ok) throw await responseError(response);
     const sheet = await response.blob();
-    const views = await decodeAccessory(sheet);
+    const views = await decodeAccessory(sheet, placement);
     views.forEach((view) => view.close());
     if (signal.aborted) return;
     const id = crypto.randomUUID();

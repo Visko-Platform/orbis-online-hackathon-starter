@@ -19,9 +19,9 @@
 .live-heading a { color: var(--accent); font-size: .85rem; }
 .live-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-areas: "camera connect output" "draw . output";
-  gap: 14px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "guide guide" "camera output" "draw output";
+  gap: 14px;
 }
 .live-camera { grid-area: camera; }
 .live-output { grid-area: output; min-width: 0; }
@@ -38,13 +38,21 @@
   color: var(--dim);
   margin-top: 4px;
 }
-.live-connections {
-  grid-area: connect;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-}
+.live-setup { grid-area: guide; min-width: 0; }
+.live-setup h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
+.live-setup-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.live-setup-steps li { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 7px; min-width: 0; padding: 8px; border-radius: 8px; background: #191819; }
+.live-setup-steps .live-setup-current { background: #302c24; }
+.live-setup-number, .live-setup-done { flex: 0 0 22px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #ded5b8; color: #15130e; font-size: .75rem; font-weight: 600; }
+.live-setup-copy { display: grid; gap: 3px; min-width: 0; flex: 1 1 90px; }
+.live-setup-copy strong { font-size: .82rem; font-weight: 600; }
+.live-setup-copy small { color: #b9b4aa; font-size: .74rem; line-height: 1.35; }
+.live-setup-steps button { flex-basis: 100%; }
+.live-setup-actions { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
+.live-setup-actions button { flex-basis: calc(50% - 4px); flex-grow: 1; min-height: 32px; padding: 5px 7px; }
+.live-setup-steps .live-setup-skip { background: transparent; color: var(--dim); }
+.live-setup-running { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: .85rem; }
+.live-setup-note { color: #b9b4aa; }
 .live-bar { min-height: 36px; margin-bottom: 6px; flex-wrap: wrap; }
 .live-bar h2 { font-size: 1rem; font-weight: 600; margin: 0; }
 .live-studio button, .live-settings summary {
@@ -55,6 +63,7 @@
   font-size: .82rem;
 }
 .live-studio .live-primary { background: var(--accent); color: #15130e; }
+.live-studio .live-stop { background: #5a2527; color: #fff5f2; }
 .live-studio button[aria-pressed="true"]:not(.live-swatch) { background: var(--accent); color: #15130e; }
 .live-studio .live-tools[hidden] { display: none; }
 .live-look-reference { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
@@ -120,8 +129,9 @@
   border-radius: 8px;
 }
 @media (max-width: 720px) {
-  .live-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "connect" "output" "camera" "draw"; }
-  .live-connections { flex-direction: row; justify-content: flex-start; }
+  .live-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "guide" "camera" "output" "draw"; }
+  .live-setup-steps { grid-template-columns: 1fr; }
+  .live-setup-steps li { align-items: center; }
 }
 .live-hat-status {
   position: absolute;

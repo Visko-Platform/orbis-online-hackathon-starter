@@ -15,19 +15,21 @@ const expand = ([a, b]: Edge, scale: number): Edge => [mix(a, b, (1 - scale) / 2
 const move = (edge: Edge, delta: Point, scale: number): Edge =>
   edge.map(({ x, y }) => ({ x: x + delta.x * scale, y: y + delta.y * scale })) as Edge;
 
-export function garmentFit(image: ImageBitmap): GarmentFit {
+export function garmentFit(image: ImageBitmap, fullBody = false): GarmentFit {
   const size = 96;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return defaultFit;
+  const expectedRow = fullBody ? 0.07 : defaultFit.shoulderRow;
+  const fallback = fullBody ? { shoulderRow: expectedRow, shoulderSpan: 0.6 } : defaultFit;
+  if (!ctx) return fallback;
   ctx.drawImage(image, 0, 0, size, size);
   const { data } = ctx.getImageData(0, 0, size, size);
-  let best = defaultFit;
+  let best = fallback;
   let bestScore = 0;
-  // Locate the lateral armor or seams in the upper third. Ignore single
-  // stray pixels at the boundaries and keep the neckline above this row.
-  for (let y = 13; y <= 33; y++) {
+  // Find the shoulder seams near the top of the silhouette. Longer garments
+  // reach that row earlier. Ignore stray pixels at the boundaries.
+  for (let y = fullBody ? 2 : 13; y <= (fullBody ? 12 : 33); y++) {
     const columns = [];
     for (let x = 0; x < size; x++) {
       if (data[(y * size + x) * 4 + 3] > 160) columns.push(x);
@@ -35,10 +37,10 @@ export function garmentFit(image: ImageBitmap): GarmentFit {
     if (columns.length < 10) continue;
     const trim = Math.floor(columns.length * 0.02);
     const span = (columns[columns.length - 1 - trim] - columns[trim] + 1) / size;
-    const score = span - Math.abs(y / size - 0.23) * 0.35;
+    const score = span - Math.abs(y / size - expectedRow) * 0.35;
     if (score <= bestScore) continue;
     bestScore = score;
-    best = { shoulderRow: y / size, shoulderSpan: clamp(span, 0.76, 1) };
+    best = { shoulderRow: y / size, shoulderSpan: clamp(span, fullBody ? 0.2 : 0.76, 1) };
   }
   return best;
 }

@@ -8,9 +8,11 @@ import { faceMatrix } from "./surface-pose";
 import { trackSurfaces, type BodyFrame } from "./surface-tracking";
 import type { Headwear } from "./headwear";
 import { trackUpperBody } from "./upper-body";
+import { trackFullBody } from "./full-body";
 import { trackJoints, type HandDetection } from "./joint-tracking";
 import { jointModel, type JointId } from "./joints";
 import type { CameraMotionTracking } from "./motion";
+import { isFist } from "./fist";
 
 type Triangle = [number, number, number];
 type TrackingFrame = {
@@ -48,13 +50,14 @@ type AccessoryTracking = {
 };
 
 export function track(video: HTMLVideoElement, ink: Ink, status: (message: string) => void,
-  accessory?: AccessoryTracking, motionTracking?: CameraMotionTracking, overlayOnly?: { geometry: () => { width: number; height: number; x: number; y: number }; shoulders: () => boolean }) {
+  accessory?: AccessoryTracking, motionTracking?: CameraMotionTracking, overlayOnly?: { geometry: () => { width: number; height: number; x: number; y: number }; shoulders: () => boolean },
+  onFistChange?: (held: boolean) => void) {
   let worker: Worker;
   try {
-    worker = new Worker("/camera-tracker.js?protocol=7", { name: "camera-tracking" });
+    worker = new Worker("/camera-tracker.js?protocol=8", { name: "camera-tracking" });
   } catch {
     status("Camera tracking unavailable. You can still draw with the pointer.");
-    return Object.assign(() => {}, { upperBody: () => undefined });
+    return Object.assign(() => {}, { upperBody: () => undefined, fullBody: () => undefined });
   }
   let closed = false;
   let busy = false;
@@ -66,7 +69,13 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
   let lastGrip = -Infinity;
   let sentAt = 0;
   let namedFaceRequested = false;
+  let jointPoseRequested = false;
+  let fullBodyRequested = false;
   let jointExpiry: number | undefined;
+  let fistHeld = false;
+  let fistSince = -1;
+  let fistReleased = -1;
+  let lastFistFrame = -Infinity;
   const joints = trackJoints();
   const hands = ["Left", "Right"].map((side) => ({
     side, source: `hand:${side}`, lastSeen: -Infinity, pinching: false,
@@ -78,13 +87,14 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
   const smoothFace = motionFilter(4.5, 0.035);
   const surfaces = trackSurfaces(ink, accessory?.headwear);
   const upperBody = trackUpperBody();
+  const fullBodyTracker = trackFullBody();
   const input = document.createElement("canvas");
   const inputContext = input.getContext("2d")!;
   // Match the 30 fps canvas stream and leave capture/rendering independent of inference.
   const usesVideoFrames = typeof video.requestVideoFrameCallback === "function";
 
-  function endStroke(state: typeof hands[number]) {
-    if (state.pinching) ink.apply(state.source, "end");
+  function endStroke(state: typeof hands[number], cancel = false) {
+    if (state.pinching) ink.apply(state.source, cancel ? "cancel" : "end");
     state.pinching = false;
     state.releaseTime = undefined;
     state.smooth = motionFilter(3.5, 18);
@@ -121,8 +131,8 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     if (closed) return;
     if (data.type === "triangles") { triangles = data.triangles; return; }
     if (data.type === "error") {
-      if (data.kind === "hand") hands.forEach(endStroke);
-      if (data.kind === "pose") { ink.shoulder = undefined; upperBody.clear(); }
+      if (data.kind === "hand") { hands.forEach((hand) => endStroke(hand)); setFist(false); }
+      if (data.kind === "pose") { ink.shoulder = undefined; upperBody.clear(); fullBodyTracker.clear(); }
       if (data.kind === "face") {
         ink.face = undefined;
         accessory?.updateFace(undefined);
@@ -131,11 +141,24 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
       return;
     }
     busy = false;
-    const { time, shoulders, face, body, fullBody, pose: posePoints, hands: detected = [] } = data;
+    const { time, shoulders, face, body, pose: posePoints, hands: detected = [] } = data;
     if (data.motion && motionTracking?.enabled() && performance.now() - sentAt < 500) {
       motionTracking.onFrame({ aspect: video.videoWidth / video.videoHeight, pose: posePoints, face });
     }
     if (cameraTime - time > HAND_HOLD_MS) return;
+    const fistDetected = !!onFistChange && detected.some((hand) => isFist(hand.points));
+    if (onFistChange) {
+      lastFistFrame = time;
+      if (fistDetected) {
+        fistReleased = -1;
+        if (fistSince < 0) fistSince = time;
+        if (time - fistSince >= 180) setFist(true);
+      } else {
+        fistSince = -1;
+        if (fistReleased < 0) fistReleased = time;
+        if (time - fistReleased >= 140) setFist(false);
+      }
+    }
     const rect = overlayOnly?.geometry() ?? cover(video.videoWidth, video.videoHeight);
     const map = (point: Point) => ({
       x: overlayOnly ? rect.x + point.x * rect.width : WIDTH - rect.x - point.x * rect.width, y: rect.y + point.y * rect.height,
@@ -143,8 +166,8 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     const score = (name: string) => face?.expressions?.find((entry) => entry.categoryName === name)?.score ?? 0;
     const blinks = { left: score("eyeBlinkLeft"), right: score("eyeBlinkRight") };
     const timeRemaining = JOINT_MAX_AGE_MS - (performance.now() - sentAt);
-    const jointFrame = (fullBody || namedFaceRequested) && timeRemaining > 0
-      ? joints.update(fullBody ? posePoints : undefined, fullBody ? detected : [], map, time,
+    const jointFrame = (jointPoseRequested || namedFaceRequested) && timeRemaining > 0
+      ? joints.update(jointPoseRequested ? posePoints : undefined, jointPoseRequested ? detected : [], map, time,
         namedFaceRequested && face ? { points: face.points, blinks } : undefined)
       : undefined;
     if (jointFrame) {
@@ -154,6 +177,7 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     }
     const anchorIsCurrent = cameraTime - time <= HOLD_MS;
     if (anchorIsCurrent) upperBody.update(shoulders, map, time);
+    if (anchorIsCurrent && fullBodyRequested) fullBodyTracker.update(posePoints, map, time);
     const [left, right] = anchorIsCurrent ? shoulders ?? [] : [];
     if (left?.visibility > 0.55 && right?.visibility > 0.55) {
       const a = map(left);
@@ -178,12 +202,13 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
       ink.face = faceAnchor(points, triangles, matrix, { x: WIDTH / 2, y: HEIGHT / 2 }, rect.height, blinks);
     }
     if (anchorIsCurrent) surfaces.update(time, rect.height, map, pose, body);
-    const [leftHand, rightHand] = (fullBody ? jointFrame?.hands : undefined) ?? matchHands(detected, hands, time, map);
+    const [leftHand, rightHand] = (jointPoseRequested ? jointFrame?.hands : undefined) ?? matchHands(detected, hands, time, map);
     if (accessory && anchorIsCurrent) {
       lastGrip = time;
       accessory.updateHands(accessoryGrips(leftHand, rightHand, map));
     }
     if (overlayOnly) return;
+    if (fistDetected || fistHeld) { hands.forEach((hand) => endStroke(hand, true)); return; }
     updateHand(hands[0], leftHand, time, map);
     updateHand(hands[1], rightHand, time, map);
   };
@@ -197,6 +222,11 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
   function update(time: number) {
     schedule();
     cameraTime = time;
+    if (time - lastFistFrame > HAND_HOLD_MS) {
+      fistSince = -1;
+      fistReleased = -1;
+      setFist(false);
+    }
     surfaces.expire(time);
     if (time - lastPose > HOLD_MS) ink.shoulder = undefined;
     if (time - lastGrip > HOLD_MS) accessory?.updateHands({});
@@ -218,8 +248,12 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     namedFaceRequested = targets.includes("face");
     const face = namedFaceRequested || motion || hat || !!placements?.some(isFaceAccessory) || Ink.prototype.follows.call(ink, "face");
     const shoulders = overlayOnly?.shoulders() || ink.overlayShoulders?.() || !!placements?.includes("shoulders") || Ink.prototype.follows.call(ink, "shoulders");
-    const fullBody = targets.includes("pose") || targets.includes("hand");
-    if (!fullBody && !namedFaceRequested && jointExpiry !== undefined) clearJoints();
+    jointPoseRequested = targets.includes("pose") || targets.includes("hand");
+    const needsFullBody = placements?.includes("fullBody") ?? false;
+    if (fullBodyRequested && !needsFullBody) fullBodyTracker.clear();
+    fullBodyRequested = needsFullBody;
+    const fullBody = jointPoseRequested || fullBodyRequested;
+    if (!jointPoseRequested && !namedFaceRequested && jointExpiry !== undefined) clearJoints();
     const scale = Math.min(1, (face || fullBody ? 960 : 640) / Math.max(video.videoWidth, video.videoHeight));
     const width = Math.round(video.videoWidth * scale);
     const height = Math.round(video.videoHeight * scale);
@@ -229,7 +263,7 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     void createImageBitmap(input).then((image) => {
       if (closed) { image.close(); return; }
       try {
-        worker.postMessage({ image, time, face, shoulders, hat, garment, fullBody, motion }, [image]);
+        worker.postMessage({ image, time, face, shoulders, hat, garment, fullBody, motion, gesture: !!onFistChange }, [image]);
       } catch {
         image.close();
         fail();
@@ -251,10 +285,12 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     else cancelAnimationFrame(frame);
     worker.terminate();
     clearJoints();
-    hands.forEach(endStroke);
+    hands.forEach((hand) => endStroke(hand));
+    setFist(false);
     ink.face = undefined;
     ink.shoulder = undefined;
     upperBody.clear();
+    fullBodyTracker.clear();
     ink.scene = undefined;
     accessory?.updateFace(undefined);
     accessory?.updateHands({});
@@ -267,9 +303,15 @@ export function track(video: HTMLVideoElement, ink: Ink, status: (message: strin
     status("Camera tracking unavailable. Change Follow to Off to draw with the pointer.");
   }
 
+  function setFist(held: boolean) {
+    if (fistHeld === held) return;
+    fistHeld = held;
+    onFistChange?.(held);
+  }
+
   worker.onerror = worker.onmessageerror = fail;
   schedule();
-  return Object.assign(stop, { upperBody: () => upperBody.at(cameraTime) });
+  return Object.assign(stop, { upperBody: () => upperBody.at(cameraTime), fullBody: () => fullBodyTracker.at(cameraTime) });
 }
 
 function matchHands(detected: HandDetection[], states: { side: string; lastSeen: number; wrist?: Point }[],

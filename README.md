@@ -123,17 +123,17 @@ behavior, use the public Reactor documentation:
 
 Run `npm run dev` and open [Camera Studio](http://127.0.0.1:3000/camera) in Chrome on the Mac. Start the camera and grant camera access. To switch cameras, stop capture, choose a source, and start again. An iPhone configured for Continuity Camera can appear as one of the Mac’s sources.
 
-Draw with the pointer or briefly pinch your thumb and index finger in view of the camera. Release to finish the stroke. **Follow → Shoulders** anchors new ink to your shoulders. **Follow → Face** attaches new ink to facial features, including the irises, or to a 3D head plane outside the face mesh. Tracking runs locally in the browser. **Pop out** opens a window you can drag to another display.
+Draw with the pointer or briefly pinch your thumb and index finger in view of the camera. Release to finish the stroke. Drawing follows the head or shoulders by default. Open **Advanced → Follow** to choose a specific anchor. **Head** attaches new ink to facial features, including the irises, or to a 3D head plane outside the face mesh. Tracking runs locally in the browser.
 
 Choose **Follow → 3D hat** to draw on the crown or brim, or **3D garment** to draw on a torso surface. Turn to expose another side and keep drawing. The pointer and both hands can draw independently. The browser renders the surfaces with WebGL 2 and runs the bundled Google MediaPipe models locally. Back-of-head tracking uses an estimate from body landmarks when a face pose is unavailable. Ink stays on the surface after tracking reacquires it.
 
-**Send to Looks** and **Capture camera** take a still of the visible angle. Orbis Stable uses the still as an image-to-video starting frame. It receives the visible pixels and generates any newly revealed views.
+**Capture camera** takes a still of the visible angle. Orbis Stable uses the still as an image-to-video starting frame. It receives the visible pixels and generates any newly revealed views.
 
 In Live Studio, open **Head reference** to save the front, both profiles, and back of your head from the clean webcam feed. The photos stay in the camera panel for the current visit. **Prepare Orbis look** sends the saved angles, the live composition, and a four-view render of any drawn hat to Gemini to prepare a single photorealistic starting image. The head photos help guide that image. Orbis itself receives the resulting still.
 
 ### Local Gaussian head scan
 
-1. In **Head scan**, record a 15–30 second orbit with a movable camera, such as an iPhone selected as the camera source. Keep your head still as the camera moves around it. Fill the frame with your head, use even lighting, and include the crown and back with overlapping views. Download the scan video.
+1. In **Advanced → Head scan**, record a 15–30 second orbit with a movable camera, such as an iPhone selected as the camera source. Keep your head still as the camera moves around it. Fill the frame with your head, use even lighting, and include the crown and back with overlapping views. Download the scan video.
 2. Install [FFmpeg](https://ffmpeg.org/), [COLMAP](https://colmap.github.io/install.html) (BSD 3-Clause), and the [Brush CLI](https://github.com/ArthurBrussee/brush/releases) (Apache 2.0). Run the local training command below. Set `HEAD_SPLAT_BRUSH` to the Brush binary’s path if it is named `brush_app` or kept outside your shell’s search path.
 3. Import a trained Gaussian PLY from the output folder’s `exports` directory. Studio also opens SPZ and SPLAT files. Under **Fit head and hat**, align the hat and adjust the crop to remove nearby background. Choose an orbit and elevation. Use **Draw on hat** to add strokes directly from that angle, then select **Use for Orbis** in Live Studio. It sets the rendered JPEG as the next run’s starting image. The recording, training data, and splat are handled locally.
 
@@ -148,28 +148,6 @@ Under **Camera overlays** below the preview, select **Remove** beside any drawin
 In Live Studio, switch the **Draw** panel to **Generate**, choose a slot, and describe a piece. **Generate accessory** sends the description and slot to Nano Banana. Inspect the front, angled, profile, and inside views, then select **Add to camera**. The browser tracks head angles, shoulders, and hand positions locally. Headwear uses a 3D shape based on the front and profile silhouettes and rotates as you turn, look up or down, and tilt. You can draw over the camera composition and save combinations of pieces as named looks in this browser.
 
 **Prepare Orbis look** sends a camera still and the worn pieces’ turnaround sheets to Gemini to produce a fitted opening frame. The motion prompt also carries the selected pieces and grip direction for any hand props. Starting the Orbis run sends the prepared image and prompt to Reactor.
-
-### Draw from an iPhone
-
-1. Join the same Wi-Fi on both devices. Find the Mac’s Wi-Fi IPv4 address in System Settings → Wi-Fi → Details → TCP/IP.
-2. Use [mkcert](https://github.com/FiloSottile/mkcert) to create a certificate for that address. Replace the example address with yours. Keep these files outside the repo.
-
-   ```sh
-   mkcert -cert-file '/private/tmp/orbis-camera-cert.pem' -key-file '/private/tmp/orbis-camera-key.pem' '192.168.1.42'
-   ```
-
-3. AirDrop only `rootCA.pem` from the directory printed by `mkcert -CAROOT` to your iPhone. Install the profile and [enable full trust](https://support.apple.com/en-us/102390). Keep both private keys on the Mac.
-4. Leave Next running on its default loopback address and start the phone listener in a second terminal.
-
-   ```sh
-   npm run camera:lan -- '192.168.1.42' '/private/tmp/orbis-camera-cert.pem' '/private/tmp/orbis-camera-key.pem'
-   ```
-
-   If Next is already running on a different port, set `CAMERA_STUDIO_PORT` to that port before launching the listener.
-
-5. Start the camera on the Mac, choose **Open on iPhone**, enter the same IP, and select **New link**. Scan the QR code using the iPhone’s Camera app and open it in Safari. If Wi-Fi disconnects, create a new link. The Mac keeps your finished ink.
-
-The link expires after two minutes and pairs with one phone. The phone receives the live composition and sends touch input over the local network. The listener exposes the phone page, static assets, and pairing traffic. Browser tracking loads the bundled MediaPipe Hand, Pose Lite, and Face Landmarker models locally. Generating an accessory uses the Gemini project’s image generation quota.
 
 ## Looks
 
@@ -194,10 +172,16 @@ preparation and to Orbis for video.
 ## Live Studio
 
 Open **Live Studio** for the live camera, drawing canvas, Orbis render, and
-steering chat. Select **Start camera** in the preview. Draw on the feed with the pointer or
-pinch your thumb and index finger. **Follow**, **Open on iPhone**, and
-**Pop out** share the Camera Studio controls and pairing setup above. The
-separate blank canvas is ready as soon as the page opens.
+steering chat. The setup guide shows five steps: start the camera, check the live controls,
+enable the microphone if you want voice sketches, capture a starting image, then review it
+and select **Start generation**. Drive Orbis and Live sketch start enabled on each visit.
+Microphone setup can be skipped, and a prepared image from Looks or an uploaded image can
+replace camera capture. Draw on the feed with the pointer or
+pinch your thumb and index finger. **Follow** and **Head scan** are under
+**Advanced** in the Camera Studio controls. Hold a fist in the live camera to
+speak; release it to transcribe. During a run, fist speech steers the Orbis
+scene, including the setting and shot framing. Pinch speech describes a Live
+sketch. The separate blank canvas is ready as soon as the page opens.
 With **Drive Orbis** enabled, wait for **Motion tracking ready**. Enter a
 starting prompt to describe your character and setting. When motion tracking
 is ready, you can leave the prompt blank to use the default scene. You can
@@ -209,14 +193,14 @@ face landmarks locally and sends the latest stable pose to Orbis as a prompt.
 Raise an arm, turn your head, or move across the frame. Orbis applies changes
 at roughly 1.8-second chunk boundaries, so motion is approximate.
 
-Turn on **Live sketch**, select **Enable microphone**, and allow microphone
+With **Live sketch** on, select **Enable microphone**, and allow microphone
 access. Once the button reads **Microphone ready**, pinch to draw and speak
 when **Listening…** appears. Release to steer Orbis with the
 sketch and description. If live captions are delayed, the recording is
 transcribed after release. You can still draw with the pointer and use
 **Speak** for a separate spoken edit.
 
-Turn on **Generate images** to have Gemini make a cutout from each described
+Turn on **Generate sketch images** to have Gemini make a cutout from each described
 pinch sketch. Select **Use image** to replace the visible stroke with an image
 that follows the subject in the camera, Orbis render, and OBS. **Use sketch**
 restores the stroke. When Follow is Off, images follow the face. Undo or clear

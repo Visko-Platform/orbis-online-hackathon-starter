@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { NANO_BANANA_STUDIO_MODEL } from "@/lib/nano-banana";
 import { PHOTOREAL_DIRECTION } from "@/lib/orbis-prompt";
 import { headViews } from "@/lib/camera/head-views";
+import { accessoryPlacements } from "@/lib/camera/accessory";
 import { readBoundedBody, requireLocalRequest } from "@/lib/server/local-request";
 
 const isPhoto = (file: unknown): file is File => file instanceof File && file.type === "image/jpeg" && file.size > 0;
@@ -25,10 +26,12 @@ export async function POST(request: Request) {
   const environment = form?.get("environment");
   const background = form?.get("background") ?? null;
   const source = form?.get("source") ?? null;
+  const replaceClothing = form?.get("replaceClothing") ?? null;
   const sketch = source === "sketch";
-  if ((source !== null && !sketch) || !isPhoto(frame) ||
+  if ((source !== null && !sketch) || (replaceClothing !== null && replaceClothing !== "true") ||
+      (replaceClothing === "true" && !sheets.length) || !isPhoto(frame) ||
       (!sketch && !environment && !background && !sheets.length && !hat && !head.length) ||
-      (background !== null && !isBackground(background)) || sheets.length > 6 || !sheets.every(isPhoto) ||
+      (background !== null && !isBackground(background)) || sheets.length > Object.keys(accessoryPlacements).length || !sheets.every(isPhoto) ||
       (hat !== null && !isPhoto(hat)) || head.length > headViews.length ||
       new Set(head.map(({ label }) => label)).size !== head.length || !head.every(({ file }) => isPhoto(file)) ||
       typeof direction !== "string" || direction.length > 5000 ||
@@ -55,6 +58,8 @@ export async function POST(request: Request) {
           head.length && `The next ${head.length} photos show the same person's head, in this order: ${head.map(({ label }) => label).join(", ")}. Use them to preserve face shape, ears and hair. Use the first image for the opening pose and framing.`,
           hat && "The next image shows the same drawn hat from the front, left, right and back, in that order. Fit that design to the head as a realistic hat. Preserve the crown, brim, colors and the location of every painted stroke. Use the drawings on the side and back only where those surfaces are visible.",
           sheets.length && `The final ${sheets.length} images are turnaround sheets for the worn pieces. Use their angles and inside views for construction and fit. Center both lenses over the eyes and fit the temple arms to the ears. Preserve the lens tint shown in the sheet: opaque dark sunglasses cover the eyes, while clear lenses leave them visible. For handheld props, use a natural grip and realistic finger occlusion.`,
+          replaceClothing && "The full-body garment in the turnaround sheets replaces the person's original outfit. The first image may contain a rough garment overlay or uncovered old clothing. Dress the person in the new garment as real clothing from neckline to hem, removing the original jacket, shirt, and lower-body clothing wherever covered. Do not show the old outfit through or over it. If the frame crops the legs, show the correct visible part of the full garment and maintain the complete outfit in subsequent video frames.",
+          "Treat any colored lines drawn over the first image as design guides. Turn them into physical features at their drawn size, silhouette, and location; do not render the guide lines themselves or shrink exaggerated features into small costume accessories.",
           "Render one clean scene. Preserve the composition and designed details.",
           direction,
         ].filter(Boolean).join("\n"),

@@ -3,12 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { canvasBlob } from "@/lib/camera/frame";
 import { HEIGHT, WIDTH, type Ink } from "@/lib/camera/ink";
-import { CAMERA_EDIT_LIMIT, CAMERA_SCENE_LIMIT } from "@/lib/orbis-camera-motion";
+import { CAMERA_SCENE_LIMIT } from "@/lib/orbis-camera-motion";
 
 import type { SketchLayer } from "@/lib/camera/sketch-layer";
-
-type Speech = { text: string; time: number };
-const SPEECH_WINDOW_MS = 12_000;
 
 function capture(source: HTMLCanvasElement, ink: Ink) {
   const frame = document.createElement("canvas");
@@ -36,9 +33,8 @@ export function useLiveSketch({ ink, openingScene, canSend, setDirection, layers
   pendingPinch: boolean;
   setDirection: (direction: string) => void;
 }) {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [source, setSource] = useState<HTMLCanvasElement | null>(null);
-  const [speech, setSpeech] = useState<Speech | null>(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const revision = useSyncExternalStore(ink.subscribeDrawing, ink.drawingRevision, () => 0);
@@ -46,35 +42,31 @@ export function useLiveSketch({ ink, openingScene, canSend, setDirection, layers
     id, bounds, transcript, composited: !!selected,
   }))), [layers]);
   const previous = useRef("");
-  const applied = useRef<{ revision: number; speech: Speech | null; layerContext: string }>(null);
+  const applied = useRef<{ revision: number; layerContext: string }>(null);
 
   useEffect(() => {
     previous.current = "";
     applied.current = null;
-    setSpeech(null);
     setError("");
   }, [openingScene]);
 
   useEffect(() => {
     setWorking(false);
     if (pendingPinch || !enabled || !source || !canSend || !openingScene ||
-        (revision === applied.current?.revision && speech === applied.current.speech && layerContext === applied.current.layerContext)) return;
+        (revision === applied.current?.revision && layerContext === applied.current.layerContext)) return;
     const changed = revision !== applied.current?.revision;
-    const newSpeech = !!speech && speech !== applied.current?.speech;
-    const instruction = speech && (newSpeech || (ink.hasVisibleDrawing && performance.now() - speech.time < SPEECH_WINDOW_MS))
-      ? speech.text : "";
 
     function apply(direction: string, remove = "") {
       const prior = previous.current;
       previous.current = direction;
-      applied.current = { revision, speech, layerContext };
+      applied.current = { revision, layerContext };
       const disappearing = prior && (remove || (!direction ? prior : ""));
       if (direction || disappearing) {
         setDirection([direction, disappearing && `These effects disappear: ${disappearing}`].filter(Boolean).join(" "));
       }
     }
 
-    if (!ink.hasVisibleDrawing && !instruction) {
+    if (!ink.hasVisibleDrawing) {
       apply("");
       setError("");
       return;
@@ -90,7 +82,7 @@ export function useLiveSketch({ ink, openingScene, canSend, setDirection, layers
         const body = new FormData();
         body.set("frame", frame, "frame.jpg");
         if (sketch) body.set("ink", sketch, "ink.png");
-        body.set("speech", instruction);
+        body.set("speech", "");
         body.set("layers", layerContext);
         body.set("previous", previous.current);
         body.set("changed", String(changed));
@@ -111,23 +103,15 @@ export function useLiveSketch({ ink, openingScene, canSend, setDirection, layers
       } finally {
         if (!controller.signal.aborted) setWorking(false);
       }
-    }, newSpeech ? 500 : 320);
+    }, 320);
 
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [canSend, enabled, ink, layerContext, openingScene, pendingPinch, revision, setDirection, source, speech]);
-
-  function useSpeech(transcript: string) {
-    const text = transcript.trim().slice(0, CAMERA_EDIT_LIMIT);
-    if (!enabled || !source || !canSend || !text) return false;
-    setSpeech({ text, time: performance.now() });
-    return true;
-  }
+  }, [canSend, enabled, ink, layerContext, openingScene, pendingPinch, revision, setDirection, source]);
 
   function toggle() {
     setError("");
-    if (enabled) setSpeech(null);
     setEnabled(!enabled);
   }
 
-  return { enabled, toggle, setSource, useSpeech, working, error };
+  return { enabled, toggle, setSource, working, error };
 }

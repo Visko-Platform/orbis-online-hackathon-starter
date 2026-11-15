@@ -15,6 +15,7 @@ function isIntent(value: unknown): value is DesignIntent {
     (input.garment === undefined || isText(input.garment, 64)) &&
     (input.previous === undefined || isText(input.previous)) &&
     (input.sceneContext === undefined || input.mode === "steer" && isText(input.sceneContext)) &&
+    (input.currentScene === undefined || input.mode === "steer" && isText(input.currentScene)) &&
     (input.turns === undefined || Array.isArray(input.turns) && input.turns.length <= 3 &&
       input.turns.every((turn) => turn && isText(turn.question) && isText(turn.answer))) &&
     (input.garments === undefined || Array.isArray(input.garments) && input.garments.length <= 24 &&

@@ -2,6 +2,8 @@
 
 import { useReactor, useReactorMessage } from "@reactor-team/js-sdk";
 import { useEffect, useRef, useState } from "react";
+import { useOrbisReferencePrompt } from "./use-orbis-reference-prompt";
+import { useOrbisTimeline } from "./use-orbis-timeline";
 
 import {
   preferredOrbisResolution,
@@ -11,7 +13,6 @@ import {
 } from "@/lib/orbis";
 import { openOrbisRun, type OrbisOpeningSignals } from "@/lib/orbis-opening";
 import { orbisPromptPayload } from "@/lib/orbis-prompt";
-import { prepareOrbisReference } from "@/lib/orbis-reference";
 
 export function useOrbisSession(
   clearJwt: () => void,
@@ -27,8 +28,8 @@ export function useOrbisSession(
       uploadFile: state.uploadFile,
     }));
 
-  const [prompt, setPrompt] = useState("");
-  const [image, setImage] = useState<File | null>(null);
+  const reference = useOrbisReferencePrompt();
+  const { image, prompt, describingImage } = reference;
   const [resolution, setResolution] = useState("");
   const [availableResolutions, setAvailableResolutions] = useState(STABLE_RESOLUTIONS);
   const reportedResolutions = useRef<string[]>([]);
@@ -48,12 +49,15 @@ export function useOrbisSession(
 
   const connected = status === "ready";
   const controlsBusy = busy || nanoBusy;
+  const timing = useOrbisTimeline();
+  const stopTiming = timing.stop;
 
   useEffect(() => {
     if (
       status === "disconnected" &&
       previousStatus.current !== "disconnected"
     ) {
+      stopTiming();
       setRunStarted(false);
       setPaused(false);
       setImageStatus("");
@@ -61,7 +65,7 @@ export function useOrbisSession(
       setAvailableResolutions(STABLE_RESOLUTIONS);
     }
     previousStatus.current = status;
-  }, [status]);
+  }, [status, stopTiming]);
 
   useEffect(() => {
     const handlePageHide = (event: PageTransitionEvent) => {
@@ -120,6 +124,7 @@ export function useOrbisSession(
         setError("Orbis started without the uploaded image.");
       }
     } else if (message.type === "generation_paused") {
+      timing.stopEstimating();
       setPaused(true);
     } else if (message.type === "generation_resumed") {
       setPaused(false);
@@ -127,6 +132,7 @@ export function useOrbisSession(
       message.type === "generation_complete" ||
       message.type === "generation_reset"
     ) {
+      stopTiming();
       setRunStarted(false);
       setPaused(false);
     }
@@ -162,7 +168,10 @@ export function useOrbisSession(
       setError(
         `${message.command || "command"}: ${message.reason || "rejected"}`,
       );
-      if (message.command === "start") setRunStarted(false);
+      if (message.command === "start") {
+        stopTiming();
+        setRunStarted(false);
+      }
     }
 
     if (message.type) {
@@ -171,32 +180,33 @@ export function useOrbisSession(
   });
 
   const startGeneration = async (startImage: File | null, runPrompt: string) => {
-    if (!runPrompt.trim()) throw new Error("Enter a prompt before starting.");
     expectsImageForRun.current = Boolean(startImage);
     const available = reportedResolutions.current.length ? reportedResolutions.current : STABLE_RESOLUTIONS;
+    const deliveryResolution = available.includes(resolution) ? resolution : preferredOrbisResolution(available);
+    timing.prepare(deliveryResolution, Boolean(startImage));
     await openOrbisRun({
       sendCommand,
       uploadFile,
       signals: openingSignals.current,
       image: startImage,
       prompt: runPrompt,
-      resolution: available.includes(resolution) ? resolution : preferredOrbisResolution(available),
+      resolution: deliveryResolution,
       imageAccepted: ({ width, height }) => {
         const dimensions = width && height ? ` (${width}×${height})` : "";
         setImageStatus(`Orbis accepted image${dimensions}`);
         setEvents((current) => ["image_accepted", ...current].slice(0, 8));
       },
-      conditionsReady: () => setEvents((current) => ["conditions_ready", ...current].slice(0, 8)),
+      conditionsReady: () => {
+        timing.render();
+        setEvents((current) => ["conditions_ready", ...current].slice(0, 8));
+      },
     });
   };
 
   const selectImage = (nextImage: File | null) => {
-    if (nextImage) void prepareOrbisReference(nextImage).catch(() => {});
-    setImage(nextImage);
+    reference.selectImage(nextImage);
     setImageStatus("");
   };
-
-  const startRun = () => runAction(() => startGeneration(image, prompt));
 
   const ensureConnected = async () => {
     if (connected) return;
@@ -204,19 +214,28 @@ export function useOrbisSession(
     await connect();
   };
 
-  const startScene = (startImage: File | null, text: string) => runAction(async () => {
-    if (!text.trim()) throw new Error("Enter a prompt before starting.");
-    await ensureConnected();
-    await startGeneration(startImage, text);
-  });
+  const startScene = async (startImage: File | null, text: string, poseDirection?: string) => {
+    const scene = text.trim();
+    const accepted = await runAction(async () => {
+      if (!scene) throw new Error("Enter a starting prompt.");
+      timing.begin(!connected);
+      try {
+        await ensureConnected();
+        await startGeneration(startImage, [scene, poseDirection].filter(Boolean).join("\n\n"));
+      } catch (error) {
+        stopTiming();
+        throw error;
+      }
+    });
+    return accepted ? scene : null;
+  };
 
   const startFromNanoOutput = async (
     editedImage: File,
     groundedPrompt: string,
   ) => {
-    setImage(editedImage);
-    setPrompt(groundedPrompt);
-    await runAction(() => startGeneration(editedImage, groundedPrompt));
+    reference.loadPreparedImage(editedImage, groundedPrompt);
+    await startScene(editedImage, groundedPrompt);
   };
 
   const sendSteeringPrompt = async (payload: ReturnType<typeof orbisPromptPayload>) => {
@@ -232,6 +251,7 @@ export function useOrbisSession(
 
   const disconnectSession = async () => {
     disconnecting.current = true;
+    stopTiming();
     setRunStarted(false);
     setPaused(false);
 
@@ -251,6 +271,8 @@ export function useOrbisSession(
     status,
     connected,
     controlsBusy,
+    describingImage,
+    promptError: reference.promptError,
     runStarted,
     paused,
     muted,
@@ -262,13 +284,16 @@ export function useOrbisSession(
     availableResolutions,
     error,
     events,
+    timeline: timing.timeline,
+    onFirstFrame: timing.firstFrame,
     connectSession: () => runAction(ensureConnected),
     disconnectSession,
     toggleMuted: () => setMuted((current) => !current),
-    setPrompt,
+    setPrompt: reference.setPrompt,
     selectImage,
+    loadPreparedImage: reference.loadPreparedImage,
     setResolution,
-    startRun,
+    startRun: () => startScene(image, prompt),
     startScene,
     startFromNanoOutput,
     setNanoBusy,

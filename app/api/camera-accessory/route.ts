@@ -25,6 +25,7 @@ export async function POST(request: Request) {
   }
 
   const placement = resolveAccessoryPlacement(prompt, requestedPlacement);
+  const fullBody = placement === "fullBody";
   try {
     const ai = new GoogleGenAI({ apiKey: key, httpOptions: { timeout: 60_000 } });
     const result = await ai.interactions.create({
@@ -34,12 +35,13 @@ export async function POST(request: Request) {
         `Make a product turnaround sheet for that accessory. Its placement on a wearer is the ${accessoryPlacements[placement].label.toLowerCase()}.`,
         "Show exactly the requested accessory in every view. The placement describes where the object is worn or held and must never add another item.",
         placement === "upperLip" ? "Isolate the upper-lip piece by itself. For a mustache, render only the mustache, with no glasses, nose, lips, face, beard, or other attachments, even if those appear in the reference." : "",
-        "Exactly three equal columns and two equal rows on a landscape canvas. One complete, centered cutout in each cell, with generous empty padding and no dividers or labels.",
+        `Exactly three equal columns and two equal rows on a ${fullBody ? "portrait" : "landscape"} canvas. One complete, centered cutout in each cell, with generous empty padding and no dividers or labels.`,
         "Top row left to right: front, turned 45 degrees pointing toward the left edge, turned 45 degrees pointing toward the right edge.",
         "Bottom row left to right: full profile pointing toward the left edge, full profile pointing toward the right edge, interior or underside showing construction and attachment.",
         "Show the same design, colors and proportions in all six views. Show only the object without a person, mannequin, head, body or extra props.",
         placement === "eyes" ? "For sunglasses, render both full lens surfaces in the requested or pictured tint. Dark sunglasses must have solid dark lenses that hide the eyes; never put chroma green inside tinted lenses. For clear prescription eyewear, use chroma green inside the clear lenses. In the straight-on view show the front frame, lenses and hinges only. In other views show the open temples." : "",
         placement === "shoulders" ? "Design a complete outer layer from neckline to waist. Use broad shoulder panels that cover the shoulder caps and a continuous front over the chest and upper stomach, with coverage consistent across views. Preserve open space above the neckline and outside the garment silhouette." : "",
+        fullBody && "Show the complete garment from the shoulders or neckline to its lowest hem or cuff in every cell. Match the length specified in the description or shown in the reference. Default to ankle length when neither establishes the length. Fit the entire silhouette within each cell by scaling uniformly, with green space above the neckline and below the hem. Keep sleeves hanging naturally at the sides.",
         "Use a perfectly flat, bright chroma green (#00FF00) background, including in every hole and gap.",
         "Avoid bright green on the object, shadows outside its silhouette, gradients and reflections on the backdrop.",
         "Keep every part of each object within its own cell.",
@@ -49,7 +51,7 @@ export async function POST(request: Request) {
         mime_type: reference.type,
         data: Buffer.from(await reference.arrayBuffer()).toString("base64"),
       }] : [])],
-      response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: "3:2", image_size: "2K" },
+      response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: fullBody ? "2:3" : "3:2", image_size: "2K" },
       store: false,
     }, { signal: request.signal });
     const image = result.output_image;
