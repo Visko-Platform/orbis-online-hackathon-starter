@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lifecast</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand-row">
+      <div class="brand">
+        <svg class="mark" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+          <defs><linearGradient id="lcg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb347"/><stop offset=".5" stop-color="#ff6a3d"/><stop offset="1" stop-color="#ff3d77"/></linearGradient></defs>
+          <circle cx="16" cy="16" r="15" fill="url(#lcg)"/><circle cx="16" cy="16" r="11.5" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="1.2"/>
+          <path d="M13.2 10.4v11.2l9.2-5.6z" fill="#fff"/>
+        </svg>
+        <span class="word">Life<span class="cast">cast</span></span>
+      </div>
+      <div class="tools">
+        <a id="openFull" href="#" title="Open the app in a full tab">Open full screen ↗</a>
+        <button id="settings" class="icon-btn" title="Change app URL">⚙</button>
+      </div>
+    </div>
+    <form id="settingsForm" class="settings-row" hidden>
+      <input id="baseInput" type="url" placeholder="http://localhost:3000" spellcheck="false" />
+      <button type="submit" class="link-btn">Save</button>
+      <button type="button" id="baseReset" class="link-btn">Reset</button>
+    </form>
+    <div class="action-row">
+      <div id="chip" class="chip" title="">
+        <span id="chipIcon" class="chip-icon">❔</span>
+        <span id="chipText" class="chip-text">Detecting page…</span>
+      </div>
+      <button id="tryBtn" class="primary">Try this page</button>
+      <label class="toggle follow" title="Live mode: automatically steer the video to each shopping page you open"><input type="checkbox" id="follow" checked /> Follow</label>
+    </div>
+    <div id="error" class="error" hidden></div>
+    <div id="status" class="status" hidden></div>
+
+    <details id="interests" class="interests">
+      <summary>Your shopping interests <span id="histCount" class="count"></span></summary>
+      <div class="interests-body">
+        <div class="interests-controls">
+          <label class="toggle"><input type="checkbox" id="historyEnabled" checked /> Use for trends</label>
+          <button id="clearHistory" class="link-btn">Clear</button>
+        </div>
+        <ul id="historyList" class="history-list"></ul>
+        <p class="privacy">Stored only in this browser. Shopping-related pages only.</p>
+      </div>
+    </details>
+  </header>
+
+  <main class="frame-wrap">
+    <iframe id="app" title="Lifecast" allow="autoplay; fullscreen; clipboard-write"></iframe>
+  </main>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
