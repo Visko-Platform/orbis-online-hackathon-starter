@@ -1,16 +1,16 @@
-import { OrbisDemo } from "@/components/orbis-demo";
+import { SceneDirector } from "@/components/scene-director";
 
 export default function Home() {
   return (
-    <main>
-      <header>
-        <h1>Orbis starter</h1>
+    <main className="sd-page">
+      <header className="sd-header">
+        <h1>AI Scene Director</h1>
         <p>
-          Connect, generate a continuous live video, then steer it by changing
-          the prompt while it runs.
+          A live, continuously generated film. Investigate, manipulate, and
+          intervene, and an AI director decides what happens next.
         </p>
       </header>
-      <OrbisDemo />
+      <SceneDirector />
     </main>
   );
 }
