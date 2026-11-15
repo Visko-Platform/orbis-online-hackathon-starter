@@ -45,6 +45,15 @@ the choice set in motion, what it opened up or put at risk. Earlier
 decisions can echo later (a debt, a pursuer, a damaged system, an ally).
 Reference consequences concretely in the options' teasers and logs.
 
+LIBRARY: you may be given a library of pre-rendered worlds (id, name, era,
+hint). They look best on screen, so prefer them: AT LEAST TWO of the three
+options must be library worlds. For a library option set "libraryId" to its id
+and use its name and era exactly; write the teaser, log and clue fresh so they
+follow the story. The third option may be a library world or one you invent
+(invented options have "libraryId": ""). Never offer the current world or one
+already visited. If the mission names a finale library world, the finale
+option must be that world.
+
 MISSION: the voyage has a goal (given below) and a stage. Exactly one of the
 three options must carry the mission forward ("mission": true), with "clue":
 what the crew hopes to find there (under 14 words). The other two are
@@ -77,8 +86,9 @@ const SCHEMA = {
           mission: { type: Type.BOOLEAN },
           clue: { type: Type.STRING },
           finale: { type: Type.BOOLEAN },
+          libraryId: { type: Type.STRING, description: "Library world id, or empty if invented" },
         },
-        required: ["name", "era", "teaser", "view", "log", "mission", "clue", "finale"],
+        required: ["name", "era", "teaser", "view", "log", "mission", "clue", "finale", "libraryId"],
       },
     },
     event: {
@@ -118,8 +128,15 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     world?: { name?: string; era?: string; view?: string };
     visited?: string[];
-    mission?: { title?: string; goal?: string; stage?: number; stages?: number };
+    mission?: {
+      title?: string;
+      goal?: string;
+      stage?: number;
+      stages?: number;
+      finaleLibraryId?: string;
+    };
     decisions?: string[];
+    library?: { id?: string; name?: string; era?: string; hint?: string }[];
   } | null;
   const world = body?.world;
   if (!world?.name || !world.view) {
@@ -127,6 +144,9 @@ export async function POST(request: Request) {
   }
   const visited = (body?.visited ?? []).slice(-12).map((name) => String(name).slice(0, 60));
   const decisions = (body?.decisions ?? []).slice(-6).map((line) => String(line).slice(0, 240));
+  const library = (body?.library ?? [])
+    .slice(0, 30)
+    .map((item) => `${String(item.id).slice(0, 24)} | ${String(item.name).slice(0, 40)} | ${String(item.era).slice(0, 20)} | ${String(item.hint).slice(0, 120)}`);
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -141,8 +161,11 @@ export async function POST(request: Request) {
             decisions.length
               ? `Captain's decisions so far (most recent last):\n- ${decisions.join("\n- ")}`
               : "Captain's decisions so far: none",
+            library.length
+              ? `Library (id | name | era | hint):\n${library.join("\n")}`
+              : "Library: none",
             body?.mission?.goal
-              ? `Mission: ${String(body.mission.title ?? "").slice(0, 80)}: ${String(body.mission.goal).slice(0, 300)}\nMission stage: ${Number(body.mission.stage ?? 1)} of ${Number(body.mission.stages ?? 4)}${Number(body.mission.stage) >= Number(body.mission.stages ?? 4) ? " (FINAL STAGE: the mission option must be the finale)" : ""}`
+              ? `Mission: ${String(body.mission.title ?? "").slice(0, 80)}: ${String(body.mission.goal).slice(0, 300)}\nMission stage: ${Number(body.mission.stage ?? 1)} of ${Number(body.mission.stages ?? 4)}${Number(body.mission.stage) >= Number(body.mission.stages ?? 4) ? " (FINAL STAGE: the mission option must be the finale)" : ""}${body.mission.finaleLibraryId ? `\nFinale library world: ${String(body.mission.finaleLibraryId).slice(0, 24)}` : ""}`
               : "Mission: none",
           ].join("\n"),
         },

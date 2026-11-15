@@ -187,6 +187,121 @@ export const DESTINATIONS: Destination[] = [
   },
 ];
 
+/**
+ * The rest of the pre-rendered library (high-quality opening frames in
+ * public/worlds). The director prefers these, so most jumps can cut straight
+ * to a pre-rendered frame. DESTINATIONS (above) are the charted keys.
+ */
+export const LIBRARY_EXTRA: Destination[] = [
+  {
+    id: "impactor",
+    name: "The Impactor",
+    era: "2183 AD",
+    log: "Contact. A mountain of rock on course for Earth.",
+    view: "a vast cratered asteroid from just above its surface: jagged grey boulders and dust close below, deep impact craters and ridges stretching across the midground, and the small blue disc of Earth hanging in the black sky beyond its curved horizon",
+    opener: "/worlds/impactor.jpg",
+  },
+  {
+    id: "saturn",
+    name: "Rings of Saturn",
+    era: "2390 AD",
+    log: "Inside the rings. Ice everywhere. Shields up.",
+    view: "the inside of Saturn's rings: glittering chunks of ice tumbling close ahead, bright bands of ring particles stretching away in the midground, and the colossal golden curve of Saturn filling the horizon",
+    opener: "/worlds/saturn.jpg",
+  },
+  {
+    id: "atlantis",
+    name: "Atlantis",
+    era: "9600 BC",
+    log: "Atlantis, intact. Nobody will ever believe this.",
+    view: "the island city of Atlantis from low above the sea: turquoise water and white surf close below, concentric rings of canals and white marble terraces in the midground, and a golden-domed temple on a central hill against a bright sky",
+    opener: "/worlds/atlantis.jpg",
+  },
+  {
+    id: "giza",
+    name: "Giza Plateau",
+    era: "2560 BC",
+    log: "Giza, mid-construction. The capstone is still gold.",
+    view: "the Giza plateau from low above the desert: rippled golden sand and work ramps close below, the bright limestone faces of the great pyramids in the midground, and the green ribbon of the Nile on the horizon under a hazy sun",
+    opener: "/worlds/giza.jpg",
+  },
+  {
+    id: "iceage",
+    name: "Ice Age Tundra",
+    era: "20,000 BC",
+    log: "Last glacial maximum. Mammoths, minus thirty, no regrets.",
+    view: "a frozen ice-age steppe from low above the snow: wind-blown snow and tufts of grass close below, a herd of woolly mammoths trudging across the midground, and towering blue-white glaciers on the horizon under a pale sky",
+    opener: "/worlds/iceage.jpg",
+  },
+  {
+    id: "titan",
+    name: "Titan",
+    era: "3010 AD",
+    log: "Titan. Methane rain, orange sky. Lovely, in a toxic way.",
+    view: "the surface of Titan from low above a methane shoreline: dark glassy liquid and icy pebbles close below, a winding black lake and orange dunes in the midground, and a dim ringed Saturn behind thick amber haze on the horizon",
+    opener: "/worlds/titan.jpg",
+  },
+  {
+    id: "deepreef",
+    name: "The Deep Reef",
+    era: "2300 AD",
+    log: "Underwater. Bioluminescence everywhere. Hull is holding.",
+    view: "a deep ocean reef glowing in the dark: bioluminescent corals and drifting jellyfish close ahead, towering kelp and glowing reef walls in the midground, and the faint blue shafts of a distant surface far above",
+    opener: "/worlds/deepreef.jpg",
+  },
+  {
+    id: "venice",
+    name: "Venice at Carnival",
+    era: "1750 AD",
+    log: "Venice, carnival night. We are underdressed.",
+    view: "the canals of Venice on carnival night from just above the water: dark rippling water and moored gondolas close below, lantern-lit palazzi and crowds in masks along the canal in the midground, and the dome of a great basilica glowing against fireworks on the horizon",
+    opener: "/worlds/venice.jpg",
+  },
+  {
+    id: "mars",
+    name: "Terraformed Mars",
+    era: "2600 AD",
+    log: "Mars, two centuries into terraforming. The canyons are green.",
+    view: "a terraformed Martian canyon from low above the valley floor: red rock and a winding river close below, terraced green farms and glass domes along the canyon walls in the midground, and the vast slope of Olympus Mons on the horizon under a pink sky",
+    opener: "/worlds/mars.jpg",
+  },
+  {
+    id: "aurora",
+    name: "Aurora Fjord",
+    era: "1000 AD",
+    log: "A northern fjord, Viking age. The sky is on fire, politely.",
+    view: "a deep northern fjord at night from low above the water: still black water reflecting the sky close below, steep snowy cliffs and a small village of longhouses with glowing fires in the midground, and green curtains of aurora rippling above the mountains on the horizon",
+    opener: "/worlds/aurora.jpg",
+  },
+  {
+    id: "clockwork",
+    name: "Clockwork City",
+    era: "1890 AD",
+    log: "A city of brass and steam. Everything ticks.",
+    view: "a sprawling steam-age city of brass from low above the rooftops: copper pipes and venting steam close below, giant turning clock towers and gear-driven bridges in the midground, and a colossal clockwork spire glowing amber at sunset on the horizon",
+    opener: "/worlds/clockwork.jpg",
+  },
+  {
+    id: "dyson",
+    name: "The Dyson Swarm",
+    era: "50,000 AD",
+    log: "A star wrapped in machinery. Someone was very ambitious.",
+    view: "a megastructure around a star: glinting hexagonal solar panels drifting close ahead, vast curving rings of machinery in the midground, and a blazing white star half-enclosed by a lattice shell on the horizon",
+    opener: "/worlds/dyson.jpg",
+  },
+  {
+    id: "skyisles",
+    name: "The Sky Isles",
+    era: "4400 AD",
+    log: "Floating islands, no visible means of support. Rude.",
+    view: "a sea of clouds with floating islands from just above the cloud tops: billowing white clouds close below, grassy floating islands trailing waterfalls in the midground, and a giant island crowned with a white citadel against a golden sunrise on the horizon",
+    opener: "/worlds/skyisles.jpg",
+  },
+];
+
+/** The whole pre-rendered library: charted keys plus the extras. */
+export const LIBRARY: Destination[] = [...DESTINATIONS, ...LIBRARY_EXTRA];
+
 /** A course the crew types in: "Venice during Carnival, 1750". */
 export function plottedCourse(text: string): Destination {
   const place = text.trim().replace(/[.\s]+$/, "");

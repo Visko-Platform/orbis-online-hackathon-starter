@@ -36,7 +36,11 @@
   position: absolute;
   inset: -3%;
   background: #000;
-  transform: translate(calc(var(--px) * 7px), calc(var(--py) * 4px))
+  /* The world sways a little against the cabin, for depth. */
+  transform: translate(
+      calc(var(--px) * 7px - var(--sx, 0) * 0.5px),
+      calc(var(--py) * 4px - var(--sy, 0) * 0.5px)
+    )
     rotate(calc(var(--bank, 0) * 3deg)) scale(calc(1 + var(--bank, 0) * var(--bank, 0) * 0.05));
   transition: transform 1.1s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
@@ -98,8 +102,11 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transform: translate(calc(var(--px) * -9px), calc(var(--py) * -5px))
-    rotate(calc(var(--bank, 0) * -1.6deg)) scale(1.02);
+  transform: translate(
+      calc(var(--px) * -9px + var(--sx, 0) * 1px),
+      calc(var(--py) * -5px + var(--sy, 0) * 1px)
+    )
+    rotate(calc(var(--bank, 0) * -1.6deg + var(--sr, 0) * 1deg)) scale(1.02);
   transition: transform 0.9s cubic-bezier(0.3, 0.7, 0.2, 1);
 }
 
@@ -1660,4 +1667,23 @@ label.sw-mix {
     left: -3%;
     right: -3%;
   }
+}
+
+/* The cut-jump transition canvas (see components/cut-dissolve.tsx). */
+.sw-cut {
+  display: none;
+}
+
+.sw-cut.is-active {
+  display: block;
+}
+
+.sw-cut canvas {
+  object-fit: cover;
+  transition: opacity 1.1s ease;
+}
+
+/* 2D fallback (no WebGL): fade the frozen frame away. */
+.sw-cut.is-fading canvas {
+  opacity: 0;
 }

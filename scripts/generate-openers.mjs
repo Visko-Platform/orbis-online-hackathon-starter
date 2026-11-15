@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const { DESTINATIONS, ORIGIN, sceneOf } = await import("../lib/starship.ts");
+const { LIBRARY, ORIGIN, sceneOf } = await import("../lib/starship.ts");
 
 // Highest-quality image model on the key ("Nano Banana Pro"). Override with
 // --model=<name>, e.g. --model=gemini-3.1-flash-image for faster drafts.
@@ -29,7 +29,7 @@ if (!key) throw new Error("GEMINI_API_KEY missing from .env.local");
 const outDir = new URL("../public/worlds/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
-const worlds = [ORIGIN, ...DESTINATIONS].filter(
+const worlds = [ORIGIN, ...LIBRARY].filter(
   (world) => !only.length || only.includes(world.id),
 );
 

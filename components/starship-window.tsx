@@ -22,6 +22,7 @@ import {
 import Link from "next/link";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
+import { type CutDissolveControl, CutDissolve } from "@/components/cut-dissolve";
 import { type Pulse, WarpCanvas } from "@/components/warp-canvas";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
@@ -47,6 +48,7 @@ import {
   IMPACTOR,
   POINTS,
   HELM_THROTTLES,
+  LIBRARY,
   sceneOf,
   THROTTLES,
 } from "@/lib/starship";
@@ -82,6 +84,7 @@ type DirectorPlan = {
     mission?: boolean;
     clue?: string;
     finale?: boolean;
+    libraryId?: string;
   }[];
   event?: WorldEvent | null;
   error?: string;
@@ -192,6 +195,24 @@ function Cockpit({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(0);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
+  /** Jumps: "cut" restarts Orbis on the destination's pre-rendered frame,
+   *  hidden inside the warp tunnel (exact image, possibly faster); "morph"
+   *  steers the live shot into the new world with text. C or ?jump= switches. */
+  const [jumpMode, setJumpMode] = useState<"cut" | "morph">("cut");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("jump") === "morph") setJumpMode("morph");
+  }, []);
+  const jumpModeRef = useRef(jumpMode);
+  jumpModeRef.current = jumpMode;
+  /** Opening frames ready to cut to, keyed by destination id. */
+  const frames = useRef(new Map<string, File>());
+  /** The WebGL transition that hides a cut (freeze, zoom-pull, dissolve). */
+  const cutFx = useRef<CutDissolveControl | null>(null);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      (window as unknown as { __cutFx?: typeof cutFx }).__cutFx = cutFx;
+    }
+  }, []);
   /** View "b" (default): the world stays sharp in the centre and fades to
    *  black toward the outer windows. "a": it fills every window (softer on
    *  ultrawide). ?view=a, G, or the button switches. */
@@ -285,6 +306,45 @@ function Cockpit({
     const requested = new URLSearchParams(window.location.search).get("res");
     if (requested && /^(1080p|2k|4k|native)$/.test(requested)) session.setResolution(requested);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- Ship motion: a subtle, never-repeating sway (overlapping slow waves
+  // with random phases) plus a soft random bump every 6–14 s. A touch more
+  // on boost, calmer on drift. CSS variables, so no re-renders.
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const phase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+    let bump = 0;
+    let bumpX = 0;
+    let bumpY = 0;
+    let nextBump = performance.now() + 6_000 + Math.random() * 8_000;
+    let frame = 0;
+    let last = performance.now();
+    const tick = (time: number) => {
+      frame = requestAnimationFrame(tick);
+      const dt = Math.min((time - last) / 1000, 0.05);
+      last = time;
+      const t = time / 1000;
+      const throttle = helmRef.current.throttle;
+      const amp = throttle === "boost" ? 1.5 : throttle === "drift" ? 0.6 : 1;
+      if (time > nextBump) {
+        bump = 1;
+        bumpX = (Math.random() - 0.5) * 2;
+        bumpY = Math.random() * 0.8 + 0.2;
+        nextBump = time + 6_000 + Math.random() * 8_000;
+      }
+      bump *= Math.exp(-dt * 3.2);
+      const wobble = Math.sin(t * 14) * bump;
+      const sx = (Math.sin(t * 0.37 + phase[0]) * 1.4 + Math.sin(t * 0.83 + phase[1]) * 0.6) * amp + bumpX * wobble * 2;
+      const sy = (Math.sin(t * 0.29 + phase[2]) * 1.1 + Math.sin(t * 0.71 + phase[3]) * 0.5) * amp + bumpY * wobble * 2.4;
+      const sr = (Math.sin(t * 0.21 + phase[4]) * 0.14 + Math.sin(t * 0.53 + phase[5]) * 0.06) * amp + bumpX * wobble * 0.12;
+      const style = stage.current?.style;
+      style?.setProperty("--sx", sx.toFixed(2));
+      style?.setProperty("--sy", sy.toFixed(2));
+      style?.setProperty("--sr", sr.toFixed(3));
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   // ---- Parallax: pointer → CSS variables (no re-renders).
@@ -554,7 +614,38 @@ function Cockpit({
           goal: missionRef.current.mission.goal,
           stage,
           stages: MISSION_STAGES,
+          finaleLibraryId:
+            missionRef.current.mission.finale === "detonate" ? "impactor" : undefined,
         };
+
+  /** The pre-rendered library the director may pick from (not yet visited). */
+  const libraryFor = (visited: string[]) =>
+    LIBRARY.filter((world) => !visited.includes(world.name)).map((world) => ({
+      id: world.id,
+      name: world.name,
+      era: world.era,
+      hint: world.view.split(":")[0].slice(0, 110),
+    }));
+
+  /**
+   * Get a destination's opening frame ready for a cut: library worlds load
+   * their pre-rendered frame; invented ones render in the background.
+   */
+  const prepareFrame = (dest: Destination) => {
+    if (frames.current.has(dest.id)) return;
+    const load = dest.opener
+      ? fetch(dest.opener).then((response) => (response.ok ? response.blob() : null))
+      : fetch("/api/world-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ view: dest.view }),
+        }).then((response) => (response.ok ? response.blob() : null));
+    void load
+      .then((blob) => {
+        if (blob) frames.current.set(dest.id, new File([blob], `${dest.id}.jpg`, { type: blob.type || "image/jpeg" }));
+      })
+      .catch(() => undefined);
+  };
 
   const requestPlan = async (
     place: { name: string; era: string; view: string },
@@ -570,6 +661,7 @@ function Cockpit({
         visited,
         mission: missionFor(stage),
         decisions: decisionLog,
+        library: libraryFor(visited),
       }),
     });
     const plan = (await response.json()) as DirectorPlan;
@@ -589,19 +681,29 @@ function Cockpit({
   ) => {
     const options = (plan.options ?? []).slice(0, 3);
     const done = missionRef.current.done;
-    const routes: Destination[] = options.map((option, index) => ({
-      id: `scan-${thisWorld}-${Date.now()}-${index}`,
-      name: option.name,
-      era: option.era,
-      teaser: option.teaser,
-      view: option.view,
-      log: option.log,
-      generated: true,
-      mission: Boolean(option.mission) && !done,
-      clue: option.clue,
-      finale: Boolean(option.finale) && Boolean(option.mission) && !done,
-    }));
+    const routes: Destination[] = options.map((option, index) => {
+      const story = {
+        teaser: option.teaser,
+        log: option.log,
+        mission: Boolean(option.mission) && !done,
+        clue: option.clue,
+        finale: Boolean(option.finale) && Boolean(option.mission) && !done,
+      };
+      // A library world keeps its own view and frame, so the cut, the prompt
+      // and the picture all agree; the director supplies the story.
+      const library = LIBRARY.find((world) => world.id === option.libraryId);
+      if (library) return { ...library, ...story, id: `lib-${library.id}-${thisWorld}` };
+      return {
+        id: `scan-${thisWorld}-${Date.now()}-${index}`,
+        name: option.name,
+        era: option.era,
+        view: option.view,
+        generated: true,
+        ...story,
+      };
+    });
     setScanned(routes);
+    for (const route of routes) prepareFrame(route);
     addLog(intro);
 
     // Pre-plan every route (mission stage as it will be on arrival there).
@@ -776,6 +878,7 @@ function Cockpit({
     decisions.current = [];
     routePlans.current.clear();
     branchPlans.current = null;
+    for (const world of LIBRARY) prepareFrame(world);
     setPhase("launching");
     setTarget(into === ORIGIN ? null : into);
     addLog(into === ORIGIN ? "Ignition…" : `Ignition. Plotting straight for ${into.name}…`);
@@ -994,11 +1097,25 @@ function Cockpit({
     firePulse("jump");
     shake();
 
-    const intoJump = await session.steerTo(JUMP_PROMPT);
-    if (intoJump) await waitChunks(1, 2_500);
-    if (!stillFlying()) return;
-
-    const arriving = await steer(sceneOf(dest));
+    // Cut: restart Orbis on the destination's pre-rendered frame while the
+    // warp tunnel covers the screen. Morph (or no frame ready): steer the
+    // live shot through a warp beat into the new world.
+    const frame = jumpModeRef.current === "cut" ? frames.current.get(dest.id) : undefined;
+    let arriving: boolean;
+    if (frame) {
+      const scene = sceneOf(dest);
+      const prompt = composePrompt(scene, helmRef.current);
+      if (process.env.NODE_ENV === "development") console.info("[orbis cut]", dest.name, prompt);
+      cutFx.current?.begin(); // freeze the old world before the reset blanks it
+      arriving = await session.cutTo(frame, prompt);
+      if (!arriving) cutFx.current?.finish();
+      if (arriving) lastScene.current = scene;
+    } else {
+      const intoJump = await session.steerTo(JUMP_PROMPT);
+      if (intoJump) await waitChunks(1, 2_500);
+      if (!stillFlying()) return;
+      arriving = await steer(sceneOf(dest));
+    }
     if (!stillFlying()) return;
     if (!arriving) {
       sceneLock.current = "free";
@@ -1010,6 +1127,7 @@ function Cockpit({
     // The tunnel keeps flowing; arrive (flash, chime, VESTA) the moment the
     // new world is on screen, or after 10 s at most.
     await waitUntilSeen(dest.view, stillFlying, 10_000);
+    cutFx.current?.finish(); // dissolve into the new world (no-op after a morph)
     if (!stillFlying()) return;
     audio.current?.arrive();
     firePulse("arrive");
@@ -1175,6 +1293,7 @@ function Cockpit({
       else if (key === "v") void current.rehearseVesta();
       else if (key === "f") void current.previewLayout("flying");
       else if (key === "g") setView((current) => (current === "a" ? "b" : "a"));
+      else if (key === "c") setJumpMode((current) => (current === "cut" ? "morph" : "cut"));
       else if (key === "q") current.decide(0);
       else if (key === "e") current.decide(1);
       else if (key === "h") setHelmOpen((open) => !open);
@@ -1209,6 +1328,7 @@ function Cockpit({
           )}
         </div>
 
+        <CutDissolve control={cutFx} />
         <WarpCanvas pulse={pulse} sustain={phase === "jumping"} />
         <div className="sw-glass" aria-hidden />
 
@@ -1566,6 +1686,13 @@ function Cockpit({
             Log ({postcards.length})
           </button>
         )}
+        <button
+          type="button"
+          title="Cut: restart on the destination's pre-rendered frame under the warp. Morph: steer the live shot into it (C)"
+          onClick={() => setJumpMode((current) => (current === "cut" ? "morph" : "cut"))}
+        >
+          Jumps: {jumpMode === "cut" ? "Cut" : "Morph"}
+        </button>
         <button
           type="button"
           title="A: the world fills every window. B: sharper centre, fading to black at the edges (G)"
