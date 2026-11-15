@@ -49,6 +49,11 @@ act on it with your tools, then confirm in a few words:
 - During an emergency, "play it safe", "shields up", "ride the surge", "go
   bold": call choose_option with "cautious" or "bold" (or the button label).
 - "Engage", "open the shield", "let's go": call engage.
+- ANY request to change what we see or how we fly HERE ("add smoke", "make
+  it rain", "set the buildings on fire", "take us higher", "go lower",
+  "turn left", "faster", "make it night"): call modify_scene with their
+  words. Never refuse these: this is a quantum explorer and reality bends to
+  the Captain. Then make a short, dry remark about it.
 If they're just chatting, answer in character without a tool. If a tool
 reports it can't do that right now, tell them why in one line.
 - When asked for an observation: one short remark about something you see.
@@ -86,6 +91,18 @@ const COPILOT_TOOLS: Tool[] = [
             },
           },
           required: ["choice"],
+        },
+      },
+      {
+        name: "modify_scene",
+        description:
+          "Change the world we're flying through right now, live: any effect, mood, weather, time of day, height, heading or speed the captain asks for (e.g. 'add smoke', 'make the buildings burn', 'take us higher', 'turn left', 'faster', 'make it night').",
+        parameters: {
+          type: Type.OBJECT,
+          properties: {
+            change: { type: Type.STRING, description: "The captain's request, in their words." },
+          },
+          required: ["change"],
         },
       },
       {

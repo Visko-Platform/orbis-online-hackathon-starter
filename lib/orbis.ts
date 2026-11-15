@@ -8,7 +8,7 @@ export const ORBIS_TRACKS = [
 export const DOCUMENTED_RESOLUTIONS = ["1080p", "2k", "4k"];
 
 /** Hard cap on one Orbis session, enforced by the token /api/token mints. */
-export const SESSION_LIMIT_SECONDS = 300;
+export const SESSION_LIMIT_SECONDS = 600;
 
 export type OrbisMessage = {
   type?: string;

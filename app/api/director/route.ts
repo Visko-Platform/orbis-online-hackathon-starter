@@ -5,6 +5,21 @@ import { DIRECTOR_MODEL } from "@/lib/copilot-config";
 
 export const runtime = "nodejs";
 
+/** Gemini sometimes answers 429 (rate limit) or 503 (overloaded): retry
+ *  briefly before giving up, so a busy moment doesn't break the flight. */
+async function withRetry<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (caught) {
+      const message = String((caught as Error)?.message ?? caught);
+      const busy = /\b(429|503)\b|RESOURCE_EXHAUSTED|UNAVAILABLE|high demand/i.test(message);
+      if (!busy || attempt >= attempts) throw caught;
+      await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+    }
+  }
+}
+
 // The story director: given where the ship is and where it has been, invents
 // three onward destinations and (sometimes) an unexpected event at this world.
 // Everything it writes is constrained to what Orbis renders well: a view
@@ -163,7 +178,7 @@ export async function POST(request: Request) {
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
+    const response = await withRetry(() => ai.models.generateContent({
       model: DIRECTOR_MODEL,
       contents: [
         {
@@ -191,7 +206,7 @@ export async function POST(request: Request) {
         maxOutputTokens: 2_048,
         thinkingConfig: { thinkingBudget: 0 },
       },
-    });
+    }));
     const plan = JSON.parse(response.text ?? "{}") as {
       options?: unknown[];
       event?: unknown;

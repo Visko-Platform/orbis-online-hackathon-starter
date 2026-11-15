@@ -413,7 +413,7 @@ function CueSession({
                 className={`cue-clock ${
                   session.connected && remaining <= 30 ? "is-low" : ""
                 } ${session.connected ? "" : "is-idle"}`}
-                title="Each Orbis session is capped at 5 minutes"
+                title="Each Orbis session is capped at 10 minutes"
               >
                 {formatClock(remaining)}
                 <small>{session.connected ? "left" : "per session"}</small>

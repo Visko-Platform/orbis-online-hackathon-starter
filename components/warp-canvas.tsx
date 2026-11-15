@@ -108,7 +108,7 @@ export function WarpCanvas({
       let t = 0;
       if (effect) {
         const duration = effect.kind === "jump" ? JUMP_BURST_MS : 1_000;
-        t = (time - effect.at) / duration;
+        t = Math.max(0, (time - effect.at) / duration);
         if (t >= 1) {
           started.current = null;
           effect = null;

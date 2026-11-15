@@ -115,7 +115,7 @@ type Postcard = { id: string; name: string; era: string; log: string; image: str
 const BANK_HOLD_MS = 9_000;
 
 /** Who is steering Orbis right now. The scene driver only acts when "free". */
-type SceneLock = "free" | "launch" | "jump" | "event";
+type SceneLock = "free" | "launch" | "jump" | "event" | "edit";
 
 /** A JPEG (base64, no data: prefix) of the live Orbis video, or null. */
 function captureFrame(width = 512): string | null {
@@ -287,6 +287,11 @@ function Cockpit({
   hereRef.current = here;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  /** The captain's live changes to the current world (voice), kept as
+   *  standing orders for the scene driver until the next arrival. */
+  const captainMods = useRef<string[]>([]);
+  /** The scene driver waits until this time (lets a live change show). */
+  const holdDriverUntil = useRef(0);
   /** Rehearsal: rumble until this time even when not really jumping. */
   const rumbleUntil = useRef(0);
   /** Dev layout preview: flying without a session must not auto-dock. */
@@ -333,7 +338,7 @@ function Cockpit({
         const result = await askScene<{ visible: boolean }>({ mode: "check", frame, expect });
         if (result?.visible) return true;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      await new Promise((resolve) => window.setTimeout(resolve, 2_500));
     }
     return false;
   };
@@ -490,6 +495,7 @@ function Cockpit({
     const timer = window.setInterval(async () => {
       const { phase: current, here: place } = driverState.current;
       if (busy || current !== "flying" || sceneLock.current !== "free") return;
+      if (Date.now() < holdDriverUntil.current) return;
       const frame = captureFrame();
       if (!frame) return;
       busy = true;
@@ -499,6 +505,7 @@ function Cockpit({
         frame,
         world: `${place.name} (${place.era}): ${place.view}`,
         lastPrompt: lastScene.current,
+        keep: captainMods.current,
       });
       busy = false;
       if (!beat?.prompt || world.current !== thisWorld || sceneLock.current !== "free") return;
@@ -562,7 +569,7 @@ function Cockpit({
     });
   }, [caption]);
 
-  // ---- Drive clock: every session is capped at five minutes.
+  // ---- Drive clock: every session is capped at SESSION_LIMIT_SECONDS (10 min).
   useEffect(() => {
     if (session.connected) {
       setConnectedAt((current) => current ?? Date.now());
@@ -592,6 +599,7 @@ function Cockpit({
     const flight = voyage.current;
     clearEventTimer();
     visitedRef.current = [...visitedRef.current, dest.name];
+    captainMods.current = []; // a new world starts clean
     setVisited(visitedRef.current);
     setHere(dest);
     setTarget(null);
@@ -1018,7 +1026,7 @@ function Cockpit({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, session.connected, session.runStarted]);
 
-  // ---- The flight ends when the session does (dock, error, or 5:00).
+  // ---- The flight ends when the session does (dock, error, or the time cap).
   useEffect(() => {
     if ((phase === "flying" || phase === "jumping" || phase === "briefing") && !session.connected && !previewing.current) {
       voyage.current += 1;
@@ -1251,7 +1259,7 @@ function Cockpit({
     );
   };
 
-  const voiceOrder = (name: string, args: Record<string, unknown>): string => {
+  const voiceOrder = (name: string, args: Record<string, unknown>): string | Promise<string> => {
     if (name === "engage") {
       if (phase !== "briefing") return phase === "launching" ? "The drive is still spooling up." : "We're already flying.";
       engage();
@@ -1283,7 +1291,50 @@ function Cockpit({
       void jump(dest);
       return `Jumping to ${dest.name}.`;
     }
+    if (name === "modify_scene") {
+      const change = String(args.change ?? "").trim();
+      if (!change) return "No change given.";
+      if (phase !== "flying") {
+        return phase === "jumping" ? "We're mid-jump; ask again once we arrive." : "We're not flying yet.";
+      }
+      if (emergency || sceneLock.current !== "free") return "Hold on: let's get through this emergency first.";
+      // Turns and speed also move the real helm (instant cockpit feedback).
+      const said = change.toLowerCase();
+      if (/\bleft\b/.test(said)) bank(-1);
+      else if (/\bright\b/.test(said)) bank(1);
+      if (/faster|speed up|boost|punch it|full speed/.test(said)) setThrottle(1);
+      else if (/slower|slow down|ease off|gently/.test(said)) setThrottle(-1);
+      return applyChange(change);
+    }
     return "Unknown order.";
+  };
+
+  /** Reshape the current world live: Gemini rewrites the scene from the
+   *  frame on screen with the change applied, and Orbis morphs into it. */
+  const applyChange = async (change: string): Promise<string> => {
+    const thisWorld = world.current;
+    const frame = captureFrame();
+    sceneLock.current = "edit";
+    try {
+      const edit = frame
+        ? await askScene<{ scene: string; summary: string }>({
+            mode: "edit",
+            frame,
+            lastPrompt: lastScene.current || sceneOf(hereRef.current),
+            change,
+          })
+        : null;
+      if (world.current !== thisWorld) return "We've moved on; ask again here.";
+      const scene = edit?.scene ?? `${lastScene.current || sceneOf(hereRef.current)} ${change}.`;
+      const ok = await steer(scene);
+      if (!ok) return "The drive didn't take that change; try again.";
+      captainMods.current = [...captainMods.current, edit?.summary || change].slice(-4);
+      holdDriverUntil.current = Date.now() + 10_000; // let it show before the next beat
+      addLog(`Captain's change: ${edit?.summary || change}.`);
+      return `Done: ${edit?.summary || change}. It takes a few seconds to appear.`;
+    } finally {
+      if (sceneLock.current === "edit") sceneLock.current = "free";
+    }
   };
 
   const voiceRef = useRef({ order: voiceOrder, heard: (text: string) => setCaptainLine(text) });
@@ -1665,7 +1716,7 @@ function Cockpit({
               ) : docked ? (
                 <button type="button" className="sw-launch" onClick={() => launch()}>
                   Launch
-                  <small>or pick a destination · 5-min flight</small>
+                  <small>or pick a destination · 10-min flight</small>
                 </button>
               ) : plotting ? (
                 <form className="sw-plot" onSubmit={submitCourse}>
