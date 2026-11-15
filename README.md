@@ -1,4 +1,62 @@
-# Orbis hackathon starter!
+# Crown & Concubine
+
+**A live palace drama you play with your voice and your hands, on Visko Orbis.**
+
+You are the King, then the betrayed Queen. Say anything, slap, point, or take
+off your crown, and an AI director rewrites the scene while Orbis renders it as
+one continuous live shot.
+
+## The story (about 4 minutes)
+
+1. **Dinner — you are the King.** Five years married, no heir. The Queen
+   throws the physician's fertility tea at you; you blame each other until she
+   sends you off: *"Go find someone who can give you a son."*
+2. **The hunt — you are the King.** A slaver who doesn't recognize you sneers;
+   the royal banner goes up and he grovels in the mud. Whatever you do with the
+   captive, Lysa, she whispers that she can give you a son.
+3. **The bedchamber, three months later — you are the Queen.** You find them
+   in bed. Three hidden truths can be uncovered by what you say (the rescue was
+   staged by Lysa's brother, the pregnancy is fake, and the King is the barren
+   one). Endings: triumph, divorce (take off the crown), or fall, each closing
+   on an "Episode 2" cliffhanger.
+
+## How it works
+
+| Piece | What it does |
+| --- | --- |
+| **Visko Orbis (Reactor)** | Live video. Each scene starts from an opening frame; every beat steers it with a fully written prompt (`passthrough`). |
+| **Nano Banana 2** (`gemini-3.1-flash-image`) | Renders each scene's opening frame (`scripts/generate-scenes.mjs`). |
+| **Gemini director** (`gemini-3.5-flash-lite`) | One call per player line: hears the line, writes the characters' replies and the next Orbis prompt. Story bible in `lib/drama/director.ts`. |
+| **Gemini TTS voices** (`gemini-3.8-flash-tts`, with fallbacks) | A distinct voice and acting direction per character, cached on disk so scripted lines are free after the first run; browser speech as last resort. |
+| **Voice input** | Click the mic (or hold Space). Chrome's live captions show your words and are sent as text. |
+| **Webcam gestures** | MediaPipe hand tracking in the browser: swing an open hand to **slap**, point and hold to **seize**, both hands up then down to **take off the crown**. Each fires an instant Orbis shot with no AI round trip. Classifier in `lib/drama/gestures.ts`; `npm run test:gestures` runs synthetic-motion tests. |
+
+Responsiveness tricks: an instant "reaction shot" the moment you finish
+speaking (the room freezes and turns to you), gesture shots held long enough to
+land, and the player's character always framed over the shoulder so the camera
+stays on your side of the scene.
+
+## Run it
+
+```bash
+cp .env.example .env.local   # add REACTOR_API_KEY and GEMINI_API_KEY
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000> in **Chrome** (mic and camera). `/?dry=1`
+rehearses the whole story on the still frames without a live Orbis session.
+`/starter` is the original starter playground. Live Orbis Stable bills about
+$0.58 per minute while connected; the end screen pauses and disconnects.
+
+## Contact
+
+Built by [@jwz8819](https://github.com/jwz8819). Questions or feedback: open an
+issue on this pull request or message me on GitHub.
+
+---
+
+# Orbis hackathon starter (original README)
 
 A minimal Next.js example for the public Reactor-hosted Visko Orbis Stable API.
 It demonstrates server-side token minting, WebRTC video and audio, text-to-video,

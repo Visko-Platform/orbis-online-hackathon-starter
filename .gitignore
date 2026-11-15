@@ -5,3 +5,6 @@ npm-debug.log*
 *.tsbuildinfo
 .reactor-dev-sessions.json
 .reactor-dev-sessions.json.*.tmp
+.gemini-usage.jsonl
+.tts-cache/
+public/mediapipe/

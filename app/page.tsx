@@ -1,16 +1,17 @@
-import { OrbisDemo } from "@/components/orbis-demo";
+import { Cormorant_Garamond } from "next/font/google";
+
+import { CrownGame } from "@/components/crown-game";
+
+const serif = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--serif",
+});
 
 export default function Home() {
   return (
-    <main>
-      <header>
-        <h1>Orbis starter</h1>
-        <p>
-          Connect, generate a continuous live video, then steer it by changing
-          the prompt while it runs.
-        </p>
-      </header>
-      <OrbisDemo />
+    <main className={`crown-page ${serif.variable}`}>
+      <CrownGame />
     </main>
   );
 }
