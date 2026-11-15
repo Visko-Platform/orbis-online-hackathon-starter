@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { profile } from "@/lib/server/profile";
+
 const REACTOR_API_URL = "https://api.reactor.inc";
 const MODEL_NAME = "reactor/visko-orbis-stable";
 
@@ -12,6 +14,7 @@ export async function POST() {
     );
   }
 
+  const done = profile("reactor.token");
   const response = await fetch(`${REACTOR_API_URL}/tokens`, {
     method: "POST",
     headers: {
@@ -24,7 +27,7 @@ export async function POST() {
         {
           type: "session",
           resources: { models: { match: [MODEL_NAME] } },
-          constraints: { max_sessions: 1, max_session_duration_seconds: 300 },
+          constraints: { max_sessions: 1, max_session_duration_seconds: 1800 },
         },
       ],
     }),
@@ -32,6 +35,7 @@ export async function POST() {
   });
 
   const text = await response.text();
+  done({ ok: response.ok, status: response.status });
   if (!response.ok) {
     return NextResponse.json(
       { error: `Reactor token request failed (${response.status}): ${text}` },

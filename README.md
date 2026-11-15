@@ -1,121 +1,109 @@
-# Orbis hackathon starter!
+# Lifecast: try it on before you buy anything
 
-A minimal Next.js example for the public Reactor-hosted Visko Orbis Stable API.
-It demonstrates server-side token minting, WebRTC video and audio, text-to-video,
-optional image-to-video, live prompt steering, delivery resolution, pause,
-resume, and a foldable Nano Banana-to-Orbis livestreaming example.
+> **From that ski jacket to your dream house.** Experience the thrill of buying and using stuff, without actually spending any money.
 
-## Requirements
+Lifecast is a Chrome extension plus a web app that turns whatever you're shopping for into a **live, steerable 1080p video of your life with it, starring you**.
+Browse a snowboard jacket and you're carving powder in it. Browse a ski resort, then an SUV, and Lifecast remembers both: you get into *that* SUV wearing *that* jacket, drive up the pass, ride the gondola and snowboard down.
+At the end you walk through the chalet you'd buy. You drive the video like a game, the shopping page itself works as a controller, and every new website you open hard-cuts the stream to you there.
 
-- Node.js 20.9 or newer
-- A Reactor API key with access to Visko Orbis Stable
-- A Google Gemini API key with access to Nano Banana
+Built in one day at **Build Day with Live Models (Visko × Google × Reactor), 2026-11-14**, on [Visko Orbis Stable](https://www.reactor.inc/models/visko-orbis-stable)
+(real-time, prompt-steerable video + audio over WebRTC), with Gemini 3.5 Flash and Nano Banana Pro (Gemini 3 Pro Image) for planning and keyframes.
 
-## Run locally
+![Keyframes from the pipeline](public/assets/results/tryon-glacier-carve.jpg)
 
+| | | |
+|---|---|---|
+| ![](public/assets/results/tryon-glacier-hero.jpg) | ![](public/assets/results/drive-suv-aerial.jpg) | ![](public/assets/results/tryon-glacier-air.jpg) |
+| Try-On: the jacket on the ridge | Test drive: the SUV up the pass | Riding Powder Peak |
+| ![](public/assets/results/staging-scandi-hero.jpg) | ![](public/assets/results/staging-scandi-layout-b.jpg) | ![](public/assets/results/disaster-sf-tsunami.jpg) |
+| Walkthrough: staged living room | …same room, furniture moved | Disaster Lab: tsunami scenario |
+
+*These keyframes come from the demo presets, with AI-generated stand-in models. In the product, the same frames are rendered of you from one photo, then animated live by Orbis.*
+
+## Judging criteria, and how Lifecast scores on each
+
+### ⚡ Realtime: you drive it, live
+- **One continuous Orbis session for a whole shopping trip**, at 1080p and 18 fps with audio.
+- **Game controls generated for each scene.** Gemini writes 5 context-specific inputs (W/A/S/D/Space) for whatever is on screen: surfing gets *Paddle out · Catch wave*, the gondola *Lean · Wipe glass*, the loft *Step forward · Inspect island*. Each set is ready in about 1.3 s and cached.
+- **The shopping page is a controller.** Color swatches, car paint, "See it in snow / night", resort "live conditions" and "Try a look" on listings all carry `data-lifecast-prompt`. The extension forwards a click into the stream.
+- **Follow mode:** browse to a new site and about 2.5 s later the live stream **hard-cuts** (`set_image`) to you on that page.
+- **Chunk-aligned steering**, following the official chunks-and-timing guide: at most one prompt per ~1.8 s chunk, released on `chunk_complete`, newest wins. Auto-cuts wait for the chunk in flight.
+
+| Measured live against Orbis | Result |
+|---|---|
+| Steer (key / page click) → changed frame on screen | **1.8–3.3 s** (measured to the visible chunk, not the ack) |
+| Go live on a warm GPU | **3.3–5 s** |
+| New website → live scene of you there | **~5 s** (cut click → first frames) |
+| `set_prompt` with `passthrough: true` | **~5 ms** (it hit 10 s timeouts with the server-side rewrite) |
+| Cached scene plan / pre-rendered stills | **0.1–0.5 s** / hero + all shots in **~1 s** |
+| Output | **1080p · 18 fps**, about $1 per 95 s demo session |
+
+### 🎨 Creativity: it remembers what you want
+- **Trend merging.** A Gemini planner reads the current page plus your recent interest history and wardrobe. A jacket + resort + SUV becomes a **journey**: *get in → drive → arrive → lift → ride*, in that jacket, ending at the home you'd buy.
+  The car always stays outside; the home is interior-only.
+- **Every vertical in one product:** apparel, gear, travel, real estate (walk through and **move the furniture** live) and cars (test-drive on your roads, in any weather).
+- **Life-sim game mode:** quests are the journey steps, plus XP, achievements, a wallet with a budget and real prices, an inventory of what you browsed, and random life events every ~45 s ("Golden hour or street rain?").
+- **Three directed stories** with distinct shoppers: 🏂 *Powder Day* (jacket → resort → AWD SUV → alpine chalet), 🏄 *Surf Escape* (wetsuit + board → surf town → 4x4 pickup), 🏙 *City Move* (trench coat → brick loft → electric coupe).
+
+### 🛠 Functionality: a real product, end to end
+- **Chrome MV3 extension.** It classifies any page from JSON-LD, Open Graph, prices and keywords into apparel / real_estate / auto / travel. It keeps a **private, local** interest history (toggle + clear) and embeds the app in the side panel over a small `postMessage` protocol.
+  Clearing your interests also resets the live context.
+- **Keyframe-anchored video.** Nano Banana Pro renders identity-consistent stills of you: the hero at 2K, shots at 1K, with your photo, wardrobe and destination as references.
+  Every **scene change is a hard image cut** (`reset → set_image → set_prompt → start`), so the video never drifts. Text steering is reserved for small interactive touches, anchored to the scene prompt.
+- **Server-side pre-rendering + caches.** Plans, heroes, shots, Orbis prompts and per-scene controls are cached on disk by a stable plan key. A warm-up replays every story exactly like the extension: 64 presets + 14 story pages ≈ 450 images in about 12 min at 10 concurrent jobs. On stage, nothing waits.
+- **Resilience fixes, driven by telemetry.** Single-flight cuts (newest queued), a ≤1.5 s conditions grace, `passthrough` + one retry on `set_prompt`, a priming still held until live frames arrive (no black flash), idle auto-disconnect with auto-reconnect on the next page.
+- **Profiling everywhere:** server JSONL (every Gemini attempt, per model and fallback), browser telemetry (connect, commands, upload, click → first frames, steer → visible, chunk interval) and a report script.
+
+## How it works
+```
+ 🛍 Browse        🧩 Read              🧠 Plan                 🎨 Keyframes             🎬 Live                 🎮 Play
+ any store,  →  extension extracts → Gemini 3.5 Flash    →  Nano Banana Pro       →  Orbis streams it:    →  WASD + page controls,
+ listing,       product + your        merges trends into     renders you in it,        set_image cut per        game mode, export
+ resort, car    recent interests      a scene + journey      shot by shot (cached)     scene, text steers       your clip
+```
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Demo script: [docs/DEMO.md](docs/DEMO.md). Model research: [docs/RESEARCH_BRIEF.md](docs/RESEARCH_BRIEF.md).
+
+## Also in the app: four live ad studios on the same engine
+| Route | Demo | Pitch |
+|---|---|---|
+| `/tryon` | **Live Try-On**: fashion and snowboard apparel, with realistic snow; upload your photo | Clothing advertising |
+| `/staging` | **Live Walkthrough**: upload room photos, stage them, walk through and move the furniture (interior-only rules) | Real estate |
+| `/drive` | **Test Drive Anywhere**: any car, any road, any weather | Automotive ads |
+| `/disaster` | **Disaster Lab**: natural and man-made disaster timelines on an isometric diorama of any city | Insurance, emergency drills, newsrooms |
+| `/omni` (`/lifecast`) | **Lifecast**: the extension app, with game mode | Every product page becomes a test drive |
+| `/shop` | Fictional storefronts (7 brand themes) that drive the directed stories | Demo |
+| `/pitch` | Pitch page | |
+
+## Run it
+Requirements: Node 20.9+, a Reactor API key with Visko Orbis Stable access, and a Gemini API key.
 ```bash
-cp .env.example .env.local
-# Add your Reactor API key to .env.local.
+cp .env.example .env.local     # add REACTOR_API_KEY and GEMINI_API_KEY (optional: SITE_PASSWORD, NEXT_PUBLIC_SITE_URL, CACHE_DIR)
 npm install
-npm run dev
+npm run dev                    # http://localhost:3000; production: npm run build && npm start
 ```
+- **Extension:** run `zip` from `extension/`, or use `public/lifecast-extension.zip`. Then chrome://extensions → Developer mode → **Load unpacked** → `extension/`.
+  The panel points at `http://localhost:3000` by default; change it with ⚙.
+- **Your photo:** upload it on `/omni`, or place a portrait at `CACHE_DIR/presenter.jpg` to make it the default "You". A fictional stand-in is used otherwise.
+- **Pre-render everything** (optional, about 12 min and about $60 of Gemini): open `/omni?admin=1` and click "⚡ Pre-render all", or `POST /api/omni/warm`.
+- Orbis bills while connected (~$0.58/min). The app disconnects after 15 idle minutes.
 
-Open <http://localhost:3000>.
+## Tests
+- `python3 -I scripts/story_test.py <powder|surf|city> <outdir> [--render]` replays a story exactly as the extension would (plans, journeys, renders).
+- `python3 -I scripts/omni_flow_test.py <outdir> [--render]` runs the jacket → resort → SUV flow and checks identity consistency across frames.
+- `scripts/e2e/*.cjs` (Playwright): the UI smoke test (no Orbis cost), plus live tests for realtime steering, context controls, follow-mode cuts, auto-cuts and context reset.
+  Set `BASE_URL` and `SITE_PASSWORD` (if any).
+- `scripts/profile_run.sh` + `scripts/profile_report.py` cover profiling. `scripts/gen_assets.py` regenerates the fictional product photos.
 
-`npm run dev` starts Next.js through a small session-cleanup wrapper. While in
-development, sessions created by this starter are recorded in the gitignored
-`.reactor-dev-sessions.json` file. It contains session IDs and metadata, but no
-API keys or JWTs. The wrapper uses the server-only `REACTOR_API_KEY` to delete
-recorded sessions before startup and again on `Ctrl+C`/`SIGTERM`, so restarting
-the dev server cannot silently leave a previous Orbis session consuming
-capacity. If a startup sweep cannot delete a recorded session, the wrapper
-refuses to start another dev server and reports the session ID.
+## Repo map
+| Path | What |
+|---|---|
+| `extension/` | Chrome MV3 extension (content classifier, local history, side panel bridge) |
+| `lib/demos.ts`, `lib/shop.ts` | Demo content (subjects, options, chips, shots, scenarios) and storefront data (products, stays, homes, cars, stories) |
+| `lib/server/omni.ts` | Lifecast planner: verticals, trend merging, journey mode, plan cache |
+| `lib/server/{render,prerender,warm,controls,gemini}.ts` | Keyframe rendering, pre-render + warm-up, per-scene controls, Gemini clients with model fallback |
+| `hooks/use-orbis-studio.ts` | Orbis session engine: cuts, chunk-aligned steering, latency measurement, telemetry |
+| `components/studio.tsx`, `components/omni.tsx`, `components/life-sim.tsx` | Studio UI with controller and auto demo; Lifecast app and follow mode; game HUD |
+| `app/shop/*`, `app/pitch/*` | Storefronts and pitch page |
 
-Set both keys in `.env.local`:
-
-```dotenv
-REACTOR_API_KEY=your_reactor_api_key
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-Keep both keys server-side. The browser receives only the short-lived Reactor
-JWT and the image returned by the Nano Banana route.
-
-## Nano Banana kickoff example
-
-Connect to Orbis, expand **Livestreaming example**, and click
-**Edit and start stream**. The bundled `dog.png` is displayed as the source
-image. The server sends it with the displayed image-editing prompt to
-`gemini-2.5-flash-image`. Gemini then analyzes the edited image with the user
-prompt and returns a plain-text, image-grounded prompt. The
-edited output is previewed, uploaded as the Orbis start image, and used with
-that grounded prompt to begin the stream.
-
-The two starting prompts are exported from `lib/nano-banana.ts`.
-`NANO_BANANA_PROMPT` controls the image edit, while `ORBIS_KICKOFF_PROMPT`
-describes the requested motion. The final Gemini-grounded prompt is displayed
-before it is sent to Orbis.
-
-## API flow
-
-1. `POST /api/token` requests a scoped session JWT from
-   `https://api.reactor.inc/tokens`.
-2. `ReactorProvider` connects to `reactor/visko-orbis-stable` with the
-   recv-only `main_video` and `main_audio` tracks.
-3. The model sends a `state` snapshot. Its `state.available_resolutions` list
-   replaces the starter's initial documented resolution choices.
-4. If supplied, the reference image is uploaded and passed to `set_image`
-   before `start`.
-5. If selected, `set_resolution` stages a delivery tier for the next `start`.
-   Omitting it keeps the model's current setting; the documented default is
-   `2k`.
-6. `set_prompt` supplies the required prompt, then `start` begins generation.
-7. Sending another `set_prompt` while running steers the video at the next
-   chunk boundary.
-
-## Documented model behavior
-
-- A prompt is required before `start`; the reference image is optional.
-- A 16:9 reference image works best. Other aspect ratios are resized without
-  cropping and may appear distorted.
-- The starter initially shows the currently documented `1080p`, `2k`, and `4k`
-  tiers. After connection, treat `state.available_resolutions` as authoritative
-  and send the selected value exactly as given.
-- `set_resolution` applies from the next `start`, not during the active run.
-- Orbis emits chunks about every 1.8 seconds. The first chunk emits no frames
-  while the upscaler primes; this is expected.
-- Commands are asynchronous. Use model events such as `state`,
-  `prompt_accepted`, `resolution_accepted`, `generation_started`,
-  `chunk_complete`, and `command_error` as the source of truth.
-- `pause` takes effect after the current chunk. `resume` continues the same
-  generation, and `reset` clears the current prompt and image.
-
-## Project files
-
-- `app/api/token/route.ts` performs the server-side token exchange.
-- `app/api/session-cleanup/route.ts` performs best-effort session deletion when
-  the browser page exits.
-- `app/api/session-registry/route.ts` records verified development sessions for
-  startup and shutdown cleanup.
-- `scripts/dev-with-session-cleanup.mjs` wraps `next dev` with the development
-  cleanup sweeps.
-- `app/api/nano-banana/route.ts` performs the server-side image edit.
-- `app/api/orbis-prompt/route.ts` creates the image-grounded video prompt.
-- `components/orbis-demo.tsx` composes the provider, player, controls, and demo.
-- `components/orbis-player.tsx` renders the streamed video and audio.
-- `components/orbis-controls.tsx` renders the session controls.
-- `components/nano-banana-example.tsx` owns the kickoff example and source image.
-- `hooks/use-orbis-session.ts` contains the reusable Orbis command sequence and
-  session state.
-- `dog.png` is the Nano Banana source image.
-- `lib/orbis.ts` contains the public model configuration and message helpers.
-- `lib/orbis-prompt.ts` contains the plain-text Gemini grounding instruction.
-- `lib/nano-banana.ts` contains the model and kickoff prompt.
-- `.env.example` documents the required environment variables.
-
-For the complete command parameters, message schemas, tracks, and current model
-behavior, use the public Reactor documentation:
-
-- [Visko Orbis Stable API](https://www.reactor.inc/models/visko-orbis-stable/api)
-- [Visko Orbis Dynamic API](https://www.reactor.inc/models/visko-orbis-dynamic/api)
-- [Gemini image generation and editing](https://ai.google.dev/gemini-api/docs/image-generation)
+Built on the [Visko Orbis hackathon starter](https://github.com/Visko-Platform/orbis-online-hackathon-starter) (token minting, WebRTC player, dev session cleanup).
+All brands, products and people in the assets are fictional and AI-generated.
