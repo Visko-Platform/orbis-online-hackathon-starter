@@ -1,0 +1,33 @@
+.looks {
+  max-width: 960px;
+  padding-block: 24px;
+  font-family: Verdana, Inter, sans-serif;
+}
+.looks h1 { font-size: clamp(1.4rem, 4vw, 2rem); letter-spacing: normal; margin: 0; }
+.looks-head { justify-content: space-between; max-width: none; margin-bottom: 18px; }
+.looks-head a { color: #ded5b8; }
+.looks-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.looks-sources, .looks-tools, .looks-options { margin-block: 10px; }
+.looks button[aria-pressed="false"] { background: #292722; color: #f6f4ed; border-color: transparent; }
+.looks button:focus-visible, .looks a:focus-visible { outline: 2px solid #ffe083; outline-offset: 3px; }
+.looks-stage { aspect-ratio: 16 / 9; position: relative; overflow: hidden; border-radius: 8px; background: #191819; }
+.looks-stage :is(canvas, video, img) { display: block; width: 100%; height: 100%; object-fit: contain; }
+.looks-stage[hidden], .looks-stage [hidden] { display: none; }
+.looks-stage canvas { touch-action: none; }
+.looks-stage .looks-mirror { object-fit: cover; transform: scaleX(-1); }
+.looks-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.looks-options > div { display: grid; place-items: center; aspect-ratio: 16 / 9; border-radius: 8px; background: #211f1d; text-align: center; font-size: .8rem; }
+.looks-options button:has(img) { width: 100%; height: 100%; padding: 0; overflow: hidden; }
+.looks-options button[aria-pressed="true"] { outline: 2px solid #ffe083; outline-offset: 2px; }
+.looks-options img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.looks-prompt { display: grid; gap: 8px; margin-top: 12px; }
+.looks-prompt textarea { min-height: 54px; }
+.looks-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.looks-layer-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }
+.looks-layer-list li { display: flex; gap: 4px; }
+.looks-layer-list button { min-height: 36px; }
+.looks-prompt p { margin: 0; }
+.looks-prompt > button { justify-self: start; }
+.looks-prompt textarea { resize: vertical; }
+.looks-edits { max-height: 200px; overflow: auto; padding-inline-start: 20px; }
+.looks-edits li button { margin-inline-start: 8px; }

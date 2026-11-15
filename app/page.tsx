@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { OrbisDemo } from "@/components/orbis-demo";
 
 export default function Home() {
@@ -10,6 +11,9 @@ export default function Home() {
           the prompt while it runs.
         </p>
       </header>
+      <Link href="/live">Live Studio</Link>{" · "}
+      <Link href="/looks">Looks</Link>{" · "}
+      <Link href="/camera" prefetch={false}>Camera studio</Link>
       <OrbisDemo />
     </main>
   );

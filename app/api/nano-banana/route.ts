@@ -1,6 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
+import { readBoundedBody, requireLocalRequest } from "@/lib/server/local-request";
+
 import {
   NANO_BANANA_MODEL,
   NANO_BANANA_PROMPT,
@@ -11,6 +13,9 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const blocked = requireLocalRequest(request, "nano-banana", 6);
+  if (blocked) return blocked;
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -19,7 +24,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const formData = await request.formData();
+  const payload = await readBoundedBody(request, MAX_IMAGE_BYTES + 64 * 1024);
+  if ("error" in payload) return payload.error;
+  const formData = await payload.body.formData().catch(() => null);
+  if (!formData) {
+    return NextResponse.json({ error: "Invalid multipart body" }, { status: 400 });
+  }
   const image = formData.get("image");
   if (!(image instanceof File) || !image.type.startsWith("image/")) {
     return NextResponse.json({ error: "Choose a valid image file" }, { status: 400 });

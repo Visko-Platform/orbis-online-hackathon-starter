@@ -5,7 +5,25 @@ export const ORBIS_TRACKS = [
   { name: "main_audio", kind: "audio", direction: "recvonly" },
 ] as const;
 
-export const DOCUMENTED_RESOLUTIONS = ["1080p", "2k", "4k"];
+export const STABLE_RESOLUTIONS = ["1080p", "2k", "4k"];
+
+export function preferredOrbisResolution(available: string[] = STABLE_RESOLUTIONS) {
+  for (const tier of ["720p", ...STABLE_RESOLUTIONS]) {
+    const match = available.find((size) => size.toLowerCase() === tier);
+    if (match) return match;
+  }
+  return available[0] ?? STABLE_RESOLUTIONS[0];
+}
+
+export async function setOrbisResolution(
+  sendCommand: (command: string, data: { resolution: string }) => Promise<unknown>,
+  resolution: string,
+) {
+  const reply = unwrapOrbisMessage(await sendCommand("set_resolution", { resolution }));
+  if (reply?.type !== "resolution_accepted") {
+    throw new Error(reply?.reason || `Orbis did not confirm ${resolution} delivery.`);
+  }
+}
 
 export type OrbisMessage = {
   type?: string;

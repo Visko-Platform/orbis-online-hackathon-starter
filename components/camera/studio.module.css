@@ -1,0 +1,89 @@
+.studio, .phone {
+  font-family: Verdana, Inter, sans-serif;
+  max-width: 1056px;
+  padding-block: 24px;
+}
+
+.studio h1 {
+  font-size: clamp(1.3rem, 4vw, 2rem);
+  letter-spacing: normal;
+  margin-bottom: 16px;
+}
+
+.phone {
+  width: min(100% - 16px, 1056px);
+  padding-block: 12px;
+}
+
+.stage {
+  position: relative;
+  width: min(100%, calc((100dvh - 125px) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.stage canvas, .stage video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.stage canvas { touch-action: none; }
+.controls, .pair, .accessory {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.pair p, .accessory p { flex-basis: 100%; margin: 0; }
+.controls button, .controls select, .pair button, .pair input,
+.accessory button, .accessory input, .accessory select {
+  min-height: 36px;
+  padding-inline: 10px;
+}
+.accessory input { flex: 1 1 180px; min-width: 0; width: auto; }
+.accessory select { width: auto; max-width: 100%; }
+.wardrobePreview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.wardrobePreview canvas { width: min(100%, 220px); height: auto; background: #353537; border-radius: 8px; }
+.wardrobeActions { flex: 1 1 160px; min-width: 0; display: grid; gap: 8px; }
+
+.embedded .stage { width: 100%; overflow: hidden; border-radius: 8px; }
+.start { position: absolute; inset: 0; display: grid; place-items: center; }
+.embedded .controls select { width: auto; max-width: 100%; }
+.embedded .controls label { flex-direction: row; align-items: center; }
+.embedded .controls input[type="checkbox"] { width: auto; }
+.embedded p { margin-block: 8px; }
+.advanced { width: fit-content; max-width: 100%; margin: 12px 0 0 auto; }
+.advanced summary { cursor: pointer; text-align: right; }
+.advanced[open] { width: 100%; }
+.advanced > .controls { justify-content: flex-end; }
+
+.overlays { margin-top: 8px; }
+.overlays p { margin-block: 8px; }
+.layerList {
+  margin-block: 0;
+  padding: 0;
+  list-style: none;
+}
+.layerList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: 4px;
+}
+.layerList span { overflow-wrap: anywhere; }
+.layerList button { min-height: 36px; }
+.layerList label, .layerList select { width: auto; max-width: 100%; }
+.layerList select { min-height: 36px; }
+.splatPreview {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: #222;
+}

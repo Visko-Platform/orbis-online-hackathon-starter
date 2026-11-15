@@ -203,6 +203,17 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.orbis-photo-space {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
+.orbis-photo-space canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
 .nano-demo {
   margin-top: 18px;
   border: 1px solid #3b3932;

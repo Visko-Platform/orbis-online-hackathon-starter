@@ -20,16 +20,10 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>.
-
-`npm run dev` starts Next.js through a small session-cleanup wrapper. While in
-development, sessions created by this starter are recorded in the gitignored
-`.reactor-dev-sessions.json` file. It contains session IDs and metadata, but no
-API keys or JWTs. The wrapper uses the server-only `REACTOR_API_KEY` to delete
-recorded sessions before startup and again on `Ctrl+C`/`SIGTERM`, so restarting
-the dev server cannot silently leave a previous Orbis session consuming
-capacity. If a startup sweep cannot delete a recorded session, the wrapper
-refuses to start another dev server and reports the session ID.
+Open <http://127.0.0.1:3000>. Both development and production startup bind to
+IPv4 loopback. Keep this instance local and avoid forwarding its port. The API
+routes accept same-origin browser requests without a login. Closing the page
+can still request best-effort cleanup of its own session with its session JWT.
 
 Set both keys in `.env.local`:
 
@@ -38,8 +32,8 @@ REACTOR_API_KEY=your_reactor_api_key
 GEMINI_API_KEY=your_gemini_api_key
 ```
 
-Keep both keys server-side. The browser receives only the short-lived Reactor
-JWT and the image returned by the Nano Banana route.
+Keep both keys server-side. The browser gets a scoped Reactor JWT for Orbis
+and a separate short-lived token when Gemini Live opens.
 
 ## Nano Banana kickoff example
 
@@ -53,8 +47,9 @@ that grounded prompt to begin the stream.
 
 The two starting prompts are exported from `lib/nano-banana.ts`.
 `NANO_BANANA_PROMPT` controls the image edit, while `ORBIS_KICKOFF_PROMPT`
-describes the requested motion. The final Gemini-grounded prompt is displayed
-before it is sent to Orbis.
+describes the requested motion. The Gemini-grounded prompt is displayed for
+review. The app adds the shared live-action rendering direction when it sends
+the prompt to Orbis.
 
 ## API flow
 
@@ -62,25 +57,33 @@ before it is sent to Orbis.
    `https://api.reactor.inc/tokens`.
 2. `ReactorProvider` connects to `reactor/visko-orbis-stable` with the
    recv-only `main_video` and `main_audio` tracks.
-3. The model sends a `state` snapshot. Its `state.available_resolutions` list
-   replaces the starter's initial documented resolution choices.
+3. The model sends a `state` snapshot with `state.available_resolutions`.
 4. If supplied, the reference image is uploaded and passed to `set_image`
    before `start`.
-5. If selected, `set_resolution` stages a delivery tier for the next `start`.
-   Omitting it keeps the model's current setting; the documented default is
-   `2k`.
+5. `set_resolution` stages the selected delivery tier for the next `start`.
+   The app's **Fast** setting prefers 720p when offered, then 1080p, the
+   smallest tier currently documented for Orbis Stable.
 6. `set_prompt` supplies the required prompt, then `start` begins generation.
 7. Sending another `set_prompt` while running steers the video at the next
    chunk boundary.
 
+The app adds photorealistic live-action direction to opening prompts and live
+edits. Describe the subject, action, setting, and camera in the opening prompt.
+For live steering, request one visible change at a time. The prompt asks Orbis
+to hold the current framing, lighting, and background unless the edit changes
+them. [Reactor prompting guide](https://www.reactor.inc/learn/visko-orbis-prompting-api)
+
 ## Documented model behavior
 
 - A prompt is required before `start`; the reference image is optional.
-- A 16:9 reference image works best. Other aspect ratios are resized without
-  cropping and may appear distorted.
-- The starter initially shows the currently documented `1080p`, `2k`, and `4k`
-  tiers. After connection, treat `state.available_resolutions` as authoritative
-  and send the selected value exactly as given.
+- The app center-crops reference photos to 16:9 and caps their upload size at
+  1280×720 to avoid stretching and reduce upload time. This prepares the
+  opening image. The stream uses the selected delivery tier.
+- **Explore in 3D** estimates depth in the browser, textures a 3D surface with
+  the photo, and lets you choose a nearby viewpoint. The first preview needs
+  a model download. **Use this view** sends the rendered image as the next
+  opening frame. Depth is estimated from visible pixels, so camera movement
+  is limited. Orbis receives the rendered still and generates the video.
 - `set_resolution` applies from the next `start`, not during the active run.
 - Orbis emits chunks about every 1.8 seconds. The first chunk emits no frames
   while the upscaler primes; this is expected.
@@ -95,10 +98,6 @@ before it is sent to Orbis.
 - `app/api/token/route.ts` performs the server-side token exchange.
 - `app/api/session-cleanup/route.ts` performs best-effort session deletion when
   the browser page exits.
-- `app/api/session-registry/route.ts` records verified development sessions for
-  startup and shutdown cleanup.
-- `scripts/dev-with-session-cleanup.mjs` wraps `next dev` with the development
-  cleanup sweeps.
 - `app/api/nano-banana/route.ts` performs the server-side image edit.
 - `app/api/orbis-prompt/route.ts` creates the image-grounded video prompt.
 - `components/orbis-demo.tsx` composes the provider, player, controls, and demo.
@@ -119,3 +118,98 @@ behavior, use the public Reactor documentation:
 - [Visko Orbis Stable API](https://www.reactor.inc/models/visko-orbis-stable/api)
 - [Visko Orbis Dynamic API](https://www.reactor.inc/models/visko-orbis-dynamic/api)
 - [Gemini image generation and editing](https://ai.google.dev/gemini-api/docs/image-generation)
+
+## Local camera studio
+
+Run `npm run dev` and open [Camera Studio](http://127.0.0.1:3000/camera) in Chrome on the Mac. Start the camera and grant camera access. To switch cameras, stop capture, choose a source, and start again. An iPhone configured for Continuity Camera can appear as one of the Mac’s sources.
+
+Draw with the pointer or bring your index, middle, ring, and pinky fingertips together against your thumb. Move your pinched hand to draw. Separate your fingers to finish the stroke. Drawing follows the head or shoulders by default. Open **Advanced → Follow** to choose a specific anchor. **Head** attaches new ink to facial features, including the irises, or to a 3D head plane outside the face mesh. Tracking runs locally in the browser.
+
+Choose **Follow → 3D hat** to draw on the crown or brim, or **3D garment** to draw on a torso surface. Turn to expose another side and keep drawing. The pointer and both hands can draw independently. The browser renders the surfaces with WebGL 2 and runs the bundled Google MediaPipe models locally. Back-of-head tracking uses an estimate from body landmarks when a face pose is unavailable. Ink stays on the surface after tracking reacquires it.
+
+**Capture camera** takes a still of the visible angle. Orbis Stable uses the still as an image-to-video starting frame. It receives the visible pixels and generates any newly revealed views.
+
+In Live Studio, open **Head reference** to save the front, both profiles, and back of your head from the clean webcam feed. The photos stay in the camera panel for the current visit. **Prepare Orbis look** sends the saved angles, the live composition, and a four-view render of any drawn hat to Gemini to prepare a single photorealistic starting image. The head photos help guide that image. Orbis itself receives the resulting still.
+
+### Local Gaussian head scan
+
+1. In **Advanced → Head scan**, record a 15–30 second orbit with a movable camera, such as an iPhone selected as the camera source. Keep your head still as the camera moves around it. Fill the frame with your head, use even lighting, and include the crown and back with overlapping views. Download the scan video.
+2. Install [FFmpeg](https://ffmpeg.org/), [COLMAP](https://colmap.github.io/install.html) (BSD 3-Clause), and the [Brush CLI](https://github.com/ArthurBrussee/brush/releases) (Apache 2.0). Run the local training command below. Set `HEAD_SPLAT_BRUSH` to the Brush binary’s path if it is named `brush_app` or kept outside your shell’s search path.
+3. Import a trained Gaussian PLY from the output folder’s `exports` directory. Studio also opens SPZ and SPLAT files. Under **Fit head and hat**, align the hat and adjust the crop to remove nearby background. Choose an orbit and elevation. Use **Draw on hat** to add strokes directly from that angle, then select **Use for Orbis** in Live Studio. It sets the rendered JPEG as the next run’s starting image. The recording, training data, and splat are handled locally.
+
+```sh
+node 'scripts/train-head-splat.mjs' '/path/to/head-orbit.webm' '/path/to/new-head-scan-folder'
+```
+
+When the scan preview shows a drawn hat, **Use for Orbis with locked hat** sends a bare-head JPEG. Live Studio and its OBS pop-out render the original hat mesh and ink over the generated video. Tracking uses nearby orbit views from the local scan. Use a small turn near the starting angle. The hat hides when Studio can’t match the generated head pose.
+
+Under **Camera overlays** below the preview, select **Remove** beside any drawing layer or generated piece. **Clear overlays** removes everything from the camera preview and keeps generated pieces and outfits saved in your wardrobe. Looks shows a **Delete** button beside every garment layer.
+
+In Live Studio, switch the **Draw** panel to **Generate**, choose a slot, and describe a piece. **Generate accessory** sends the description and slot to Nano Banana. Inspect the front, angled, profile, and inside views, then select **Add to camera**. The browser tracks head angles, shoulders, and hand positions locally. Headwear uses a 3D shape based on the front and profile silhouettes and rotates as you turn, look up or down, and tilt. You can draw over the camera composition and save combinations of pieces as named looks in this browser.
+
+**Prepare Orbis look** sends a camera still and the worn pieces’ turnaround sheets to Gemini to produce a fitted opening frame. The motion prompt also carries the selected pieces and grip direction for any hand props. Starting the Orbis run sends the prepared image and prompt to Reactor.
+
+## Looks
+
+Open **Looks**, add a named garment, and draw a closed outline on the blank
+canvas or a frozen webcam frame. **Prepare prompt** creates an editable image
+prompt. **Plan together** adds up to three follow-up questions, with typed or
+Gemini Live voice replies. Review the prompt and choose from three generated
+candidates. Each garment has its own layer and can be replaced or reordered.
+You can also transfer a frame and reference sketch from Camera Studio.
+
+Choose **Animate look** to review the Orbis motion prompt and start a take in
+Looks or hand it off to **Live Studio**. During a take, choose **Speak** and say
+an edit. Clear edits apply to the running take. An ambiguous target gets one
+follow-up. **Preview as still** on a garment edit can update the assembled look
+while the current video continues.
+
+The look lives in the current tab and clears on reload. Image requests send the
+base and outline guide to Gemini. Voice planning and steering use a short-lived
+Gemini Live token. Animation sends the flattened still to Gemini for prompt
+preparation and to Orbis for video.
+
+## Live Studio
+
+Open **Live Studio** for the live camera, drawing canvas, Orbis render, and
+steering chat. The setup guide shows five steps: start the camera, check the live controls,
+enable the microphone if you want voice sketches, capture a starting image, then review it
+and select **Start generation**. Drive Orbis and Live sketch start enabled on each visit.
+Microphone setup can be skipped, and a prepared image from Looks or an uploaded image can
+replace camera capture. Draw on the feed with the pointer or a four-finger pinch.
+**Follow** and **Head scan** are under **Advanced** in the Camera Studio controls.
+Hold a fist in view of the camera to speak. Release it to transcribe.
+During a run, fist speech steers the Orbis scene, including the setting and shot framing.
+Speech while drawing describes a Live sketch. The separate blank canvas is ready as soon as the page opens.
+For pose tracking, turn on **Drive Orbis** and wait for **Motion tracking ready**.
+Enter a starting prompt to describe your character and setting, or leave it blank
+to use the default scene when the camera is ready. You can
+capture the camera, prepare a sketch as a 16:9 starting image, or bring in a
+prepared look from Looks. Select **Start generation** to connect and start rendering.
+
+Keep your face, shoulders, and hands in frame. **Drive Orbis** reads body and
+face landmarks locally and sends the latest stable pose to Orbis as a prompt.
+Raise an arm, turn your head, or move across the frame. Orbis applies changes
+at roughly 1.8-second chunk boundaries, so motion is approximate.
+
+Before starting generation or during a run, keep **Live sketch** on and select **Enable microphone**.
+Draw on the live camera preview with the pointer or a four-finger pinch. For example,
+draw a circle where you want bubbles and say “add floating soap bubbles here” when
+**Listening…** appears. Release to finish the stroke. The microphone captures at least
+five seconds if you release early, unless you start another stroke. Each transcript
+stays linked to its stroke.
+**Start generation** waits for the current caption and includes the sketch’s shape,
+placement, and description in the opening scene. During a run, the same sketches
+steer the current render.
+Draw without the microphone for a sketch-only edit, or use **Speak** or a fist gesture
+for a separate scene edit.
+
+Turn on **Generate sketch images** to have Gemini make a cutout from each described
+sketch. Select **Use image** to replace the visible stroke with an image
+that follows the subject in the camera, Orbis render, and OBS. **Use sketch**
+restores the stroke. When Follow is Off, images follow the face. Undo or clear
+the source stroke to remove its image.
+
+For OBS, choose **OBS ↗** to open the render-only window. On macOS, add a
+**macOS Screen Capture** source, choose **Window Capture**, and select
+**Live Studio Render**. The window shares the current session's video.
