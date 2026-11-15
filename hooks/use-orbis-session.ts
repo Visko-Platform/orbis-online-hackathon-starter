@@ -284,6 +284,8 @@ export function useOrbisSession(
     );
     const promptReply = await sendCommand("set_prompt", {
       prompt: runPrompt.trim(),
+      // Prompts from the drama are already written the way Orbis wants them.
+      passthrough: true,
     });
     if (!promptReply) {
       conditionsReady.cancel();
@@ -378,6 +380,9 @@ export function useOrbisSession(
     setResolution,
     startRun,
     startFromNanoOutput,
+    // Start a run from an optional image without touching the form state.
+    startScene: (startImage: File | null, runPrompt: string) =>
+      runAction(() => startGeneration(startImage, runPrompt)),
     setNanoBusy,
     steer,
     pause: () => runAction(() => sendCommand("pause", {})),
