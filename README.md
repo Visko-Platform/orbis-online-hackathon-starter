@@ -1,5 +1,8 @@
 # Orbis hackathon starter!
 
+> **This fork adds _Starship Window_** at [`/window`](app/window): a cockpit
+> you fly through live Orbis worlds. See [Starship Window](#starship-window) below.
+
 A minimal Next.js example for the public Reactor-hosted Visko Orbis Stable API.
 It demonstrates server-side token minting, WebRTC video and audio, text-to-video,
 optional image-to-video, live prompt steering, delivery resolution, pause,
@@ -119,3 +122,28 @@ behavior, use the public Reactor documentation:
 - [Visko Orbis Stable API](https://www.reactor.inc/models/visko-orbis-stable/api)
 - [Visko Orbis Dynamic API](https://www.reactor.inc/models/visko-orbis-dynamic/api)
 - [Gemini image generation and editing](https://ai.google.dev/gemini-api/docs/image-generation)
+
+## Starship Window
+
+A cinematic cockpit built on Orbis Stable. Pick a destination on the console
+and the window flies you there live; an AI director keeps the journey moving
+and throws in emergencies to decide, and VESTA, a voice copilot on Gemini Live,
+watches the view with you and takes spoken orders (push-to-talk).
+
+- **Route:** `/window` (run locally as above, then open <http://localhost:3000/window>).
+- **Keys:** `REACTOR_API_KEY`, plus `GEMINI_API_KEY` for the director, scene
+  driver, VESTA and image renders. The Gemini project needs billing enabled;
+  free-tier quotas run out within a flight.
+- **Jumps:** *Cut* restarts Orbis on a pre-rendered opening frame
+  (`public/worlds/`), *Morph* steers the live shot; either way a WebGL
+  wormhole (`components/cut-dissolve.tsx`) covers the transition and releases
+  the moment the new world is on screen.
+- **Flights** are capped at 10 minutes per session and end with a docking
+  sequence back into the home bay.
+- **Where things live:** `components/starship-window.tsx` (cockpit),
+  `lib/starship.ts` (worlds, missions, prompts), `lib/copilot.ts` +
+  `lib/copilot-config.ts` (VESTA), `app/api/director`, `app/api/scene`,
+  `app/api/live-token`, `app/api/world-image` (server routes; API keys never
+  reach the browser — VESTA uses short-lived, config-locked Gemini tokens).
+- **Opening frames:** `scripts/generate-openers.mjs` renders them with Gemini;
+  `scripts/fit-16x9.py` trims letterboxing.
