@@ -118,6 +118,66 @@ const BANK_HOLD_MS = 9_000;
 type SceneLock = "free" | "launch" | "jump" | "event" | "edit";
 
 /** A JPEG (base64, no data: prefix) of the live Orbis video, or null. */
+/** A tiny colour thumbnail of the live video (32×18), for local change
+ *  detection without any API call. Null if no frames yet. */
+function thumbnail(): Float32Array | null {
+  const video = document.querySelector<HTMLVideoElement>(".sw-world video");
+  if (!video || video.readyState < 2 || !video.videoWidth) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = 32;
+  canvas.height = 18;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  context.drawImage(video, 0, 0, 32, 18);
+  const data = context.getImageData(0, 0, 32, 18).data;
+  const out = new Float32Array(32 * 18 * 3);
+  for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
+    out[j] = data[i] / 255;
+    out[j + 1] = data[i + 1] / 255;
+    out[j + 2] = data[i + 2] / 255;
+  }
+  return out;
+}
+
+/** Mean absolute colour difference between two thumbnails (0–1). */
+function difference(a: Float32Array, b: Float32Array) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
+  return sum / a.length;
+}
+
+/** Mean brightness of a thumbnail (0–1): rejects blank priming frames. */
+function brightness(a: Float32Array) {
+  let sum = 0;
+  for (let i = 0; i < a.length; i += 1) sum += a[i];
+  return sum / a.length;
+}
+
+/**
+ * Resolve as soon as the live picture has clearly become something new
+ * (compared with `baseline`) and isn't a blank priming frame: checked four
+ * times a second, locally, with no API call. Times out after `maxMs`.
+ */
+async function waitForNewWorld(
+  baseline: Float32Array | null,
+  stillValid: () => boolean,
+  maxMs: number,
+) {
+  const deadline = Date.now() + maxMs;
+  let hits = 0;
+  while (Date.now() < deadline && stillValid()) {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    const now = thumbnail();
+    if (!now || brightness(now) < 0.06) {
+      hits = 0;
+      continue;
+    }
+    if (!baseline) return; // nothing to compare with: first real frame wins
+    hits = difference(now, baseline) > 0.11 ? hits + 1 : 0;
+    if (hits >= 2) return; // two samples in a row: it's really the new world
+  }
+}
+
 function captureFrame(width = 512): string | null {
   const video = document.querySelector<HTMLVideoElement>(".sw-world video");
   if (!video || video.readyState < 2 || !video.videoWidth) return null;
@@ -289,6 +349,7 @@ function Cockpit({
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
       (window as unknown as { __cutFx?: typeof cutFx }).__cutFx = cutFx;
+      Object.assign(window, { __arrival: { thumbnail, waitForNewWorld } });
     }
   }, []);
   /** View "b" (default): the world stays sharp in the centre and fades to
@@ -1212,6 +1273,8 @@ function Cockpit({
     const frame = jumpModeRef.current === "cut" ? frames.current.get(dest.id) : undefined;
     // Into the wormhole (both modes): it hides a cut's restart and a
     // morph's in-between frames until the new world is on screen.
+    // Baseline for local arrival detection: the picture before we leave.
+    let baseline = thumbnail();
     cutFx.current?.begin();
     let arriving: boolean;
     if (frame) {
@@ -1226,6 +1289,7 @@ function Cockpit({
       if (intoJump) await waitChunks(1, 2_500);
       if (!stillFlying()) return;
       arriving = await steer(sceneOf(dest));
+      baseline = thumbnail() ?? baseline; // arrive when it changes from the transit view
     }
     if (!stillFlying()) return;
     if (!arriving) {
@@ -1239,7 +1303,9 @@ function Cockpit({
     }
     // The tunnel keeps flowing; arrive (flash, chime, VESTA) the moment the
     // new world is on screen, or after 10 s at most.
-    await waitUntilSeen(dest.view, stillFlying, 10_000);
+    // Release through the lens the moment the new world is actually there
+    // (local pixel check, no Gemini call, no polling lag); 10 s at most.
+    await waitForNewWorld(baseline, stillFlying, 10_000);
     cutFx.current?.finish(); // dissolve into the new world (no-op after a morph)
     audio.current?.stopTransit();
     if (!stillFlying()) return;
