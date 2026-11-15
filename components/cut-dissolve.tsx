@@ -1,13 +1,15 @@
 "use client";
 
-// Hides a cut jump (Orbis reset + restart) behind a WebGL transition:
-//   begin():  freeze the last frame of the old world on a GPU canvas over
-//             the video, then pull it into a radial zoom-blur, as if the ship
-//             is punching forward through it. The restart (blank and
-//             priming frames) is never seen.
-//   finish(): once the new world is on screen, dissolve from the frozen
-//             frame to the live video through animated noise, with a
-//             glowing teal burn along the dissolve edge.
+// The wormhole: hides a jump (a cut's restart, or a morph's in-between
+// frames) behind a WebGL journey built from the old world's last frame.
+//   begin():  freeze the last frame, then bend it into a 3D tunnel we fly
+//             through, accelerating, with noise swirls and chromatic fringe.
+//             At the tunnel's end an "Interstellar" glass sphere grows,
+//             showing the view through it bent and inverted (the old world
+//             at first, the new world live as soon as Orbis shows it).
+//   finish(): the sphere swells past the screen and its bending relaxes:
+//             we pass through it into the new world, landing on the plain
+//             live picture.
 // Canvas sits exactly over the world layer (same classes), under the warp
 // streaks and the cockpit.
 
@@ -28,16 +30,20 @@ void main() {
 }`;
 
 const FRAGMENT = `
-precision mediump float;
+precision highp float;
 varying vec2 v_uv;
-uniform sampler2D u_from;
-uniform sampler2D u_to;
+uniform sampler2D u_from;   // frozen last frame of the old world
+uniform sampler2D u_to;     // the live video (once the new world is there)
 uniform vec2 u_fromScale;
 uniform vec2 u_toScale;
 uniform float u_hasTo;
-uniform float u_hold;      // 0..1 zoom-blur pull on the frozen frame
-uniform float u_progress;  // 0..1 dissolve to the live video
+uniform float u_hold;       // 0..1 entry into the wormhole
+uniform float u_travel;     // seconds since the jump began
+uniform float u_progress;   // 0..1 exit through the lens
 uniform float u_time;
+uniform float u_aspect;     // canvas width / height
+
+#define PI 3.14159265
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -54,29 +60,58 @@ float fbm(vec2 p) {
   return v;
 }
 vec2 cover(vec2 uv, vec2 scale) { return (uv - 0.5) * scale + 0.5; }
+vec2 mirror(vec2 uv) { vec2 m = mod(uv, 2.0); return mix(m, 2.0 - m, step(1.0, m)); }
 
 void main() {
   vec2 centre = vec2(0.5, 0.45);
-  vec2 d = v_uv - centre;
+  vec2 p = (v_uv - centre) * vec2(u_aspect, 1.0);
+  float r = length(p);
+  float a = atan(p.y, p.x);
 
-  // Frozen old world, pulled into a radial zoom-blur that grows with u_hold.
-  vec3 from = vec3(0.0);
-  for (int i = 0; i < 10; i++) {
-    float k = float(i) / 10.0;
-    from += texture2D(u_from, cover(centre + d * (1.0 - u_hold * 0.32 * k), u_fromScale)).rgb;
+  // How far along the journey: eases toward 1 so a long hang keeps moving.
+  float approach = 1.0 - exp(-u_travel / 3.5);
+  float speed = 0.7 + u_travel * 0.3;
+
+  // 1. The frozen frame, as we enter.
+  vec3 still = texture2D(u_from, cover(centre + (v_uv - centre) * (1.0 - u_hold * 0.15), u_fromScale)).rgb;
+
+  // 2. Tunnel walls made of the old world, flying forward through them.
+  float depth = 0.3 / max(r, 0.015) + u_travel * speed;
+  float swirl = fbm(vec2(a * 1.6, depth * 0.55) + u_time * 0.12);
+  // abs(a)/PI mirrors the walls top-to-bottom, so there's no seam where the
+  // angle wraps around.
+  vec2 tuv = mirror(vec2(abs(a) / PI + swirl * 0.12 + depth * 0.025, depth * 0.17));
+  float ca = 0.002 + 0.005 * approach; // chromatic fringing grows with speed
+  vec3 wall = vec3(
+    texture2D(u_from, cover(mirror(tuv + vec2(ca, 0.0)), u_fromScale)).r,
+    texture2D(u_from, cover(tuv, u_fromScale)).g,
+    texture2D(u_from, cover(mirror(tuv - vec2(ca, 0.0)), u_fromScale)).b);
+  wall = pow(wall, vec3(1.25)) * (0.18 + 0.82 * smoothstep(0.0, 0.75, r)); // contrast + depth falloff
+  wall += vec3(0.35, 0.75, 1.0) * max(0.0, fbm(vec2(a * 3.0, depth * 2.0 - u_time * 1.5)) - 0.45) * 0.9; // energy streaks
+  vec3 colour = mix(still, wall, smoothstep(0.0, 1.0, u_hold));
+
+  // 3. The lens: a glass sphere at the tunnel's end showing the view through
+  //    it bent and inverted. It grows as we approach; on exit it swells past
+  //    the screen and its bending relaxes to a flat picture.
+  float R = mix(0.05, 0.27, approach) * u_hold + u_progress * u_progress * 2.4;
+  float lens = 1.0 - u_progress;
+  if (r < R) {
+    float k = r / R;
+    vec2 q = (v_uv - centre) / max(R, 0.02);
+    vec2 bent = centre - q * 0.42 * (1.0 - 0.55 * k * k);           // inverted, magnified
+    vec2 luv = mix(v_uv, bent, lens);
+    vec3 inside = u_hasTo > 0.5
+      ? texture2D(u_to, cover(luv, u_toScale)).rgb
+      : texture2D(u_from, cover(luv, u_fromScale)).rgb * vec3(0.8, 0.95, 1.12);
+    inside *= 1.0 + 0.35 * lens * (1.0 - k);                         // glassy brightening
+    colour = inside;
   }
-  from /= 10.0;
-  from += u_hold * 0.18 * vec3(0.55, 0.85, 1.0) * (1.0 - length(d));
+  float ring = exp(-pow((r - R) / (0.01 + 0.025 * R), 2.0)) * lens * u_hold;
+  colour += ring * vec3(0.78, 0.96, 1.0) * 1.5;                       // the bright rim of bent light
+  colour += vec3(0.3, 0.6, 1.0) * 0.22 * smoothstep(R * 2.6, R, r) * lens * u_hold; // halo
 
-  vec3 to = u_hasTo > 0.5 ? texture2D(u_to, cover(v_uv, u_toScale)).rgb : from;
-
-  // Noise dissolve: the new world burns through in patches, centre first.
-  float n = fbm(v_uv * vec2(5.5, 3.2) + vec2(u_time * 0.05, -u_time * 0.03));
-  n = mix(n, length(d) * 1.2, 0.35);
-  float edge = u_progress * 1.35 - 0.15;
-  float keepOld = smoothstep(edge - 0.035, edge + 0.035, n);
-  float burn = smoothstep(edge - 0.05, edge, n) * (1.0 - smoothstep(edge, edge + 0.035, n));
-  vec3 colour = mix(to, from, keepOld) + burn * vec3(0.55, 1.0, 0.95) * 1.3;
+  // Land clean: the last moments are the plain live picture.
+  if (u_hasTo > 0.5) colour = mix(colour, texture2D(u_to, cover(v_uv, u_toScale)).rgb, smoothstep(0.82, 1.0, u_progress));
   gl_FragColor = vec4(colour, 1.0);
 }`;
 
@@ -204,9 +239,10 @@ export function CutDissolve({ control }: { control: { current: CutDissolveContro
     const draw = (time: number) => {
       frame = requestAnimationFrame(draw);
       if (state === "idle") return;
-      const hold = Math.min(1, (time - holdStart) / 1_500);
-      const progress = state === "dissolving" ? Math.min(1, (time - dissolveStart) / 1_400) : 0;
-      const live = state === "dissolving" ? video() : null;
+      const hold = Math.min(1, (time - holdStart) / 1_200);
+      const progress = state === "dissolving" ? Math.min(1, (time - dissolveStart) / 1_600) : 0;
+      // The live video feeds the lens as soon as it has frames.
+      const live = video();
       if (live) {
         gl.activeTexture(gl.TEXTURE1);
         gl.bindTexture(gl.TEXTURE_2D, toTexture);
@@ -215,7 +251,9 @@ export function CutDissolve({ control }: { control: { current: CutDissolveContro
       }
       gl.uniform1f(uniform("u_hasTo"), live ? 1 : 0);
       gl.uniform2fv(uniform("u_fromScale"), coverScale(fromSize[0], fromSize[1], element.width, element.height));
-      gl.uniform1f(uniform("u_hold"), hold * (1 - progress * 0.6));
+      gl.uniform1f(uniform("u_hold"), hold);
+      gl.uniform1f(uniform("u_travel"), (time - holdStart) / 1000);
+      gl.uniform1f(uniform("u_aspect"), element.width / Math.max(1, element.height));
       gl.uniform1f(uniform("u_progress"), progress);
       gl.uniform1f(uniform("u_time"), time / 1000);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

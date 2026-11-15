@@ -103,7 +103,7 @@ export function WarpCanvas({
       const dt = Math.min((time - last) / 1000, 0.05);
       last = time;
       context.clearRect(0, 0, width, height);
-      cruise += ((sustainRef.current ? 0.42 : 0) - cruise) * (1 - Math.exp(-dt * 2.2));
+      cruise += ((sustainRef.current ? 0.2 : 0) - cruise) * (1 - Math.exp(-dt * 2.2)); // soft: the wormhole leads
       let effect = started.current;
       let t = 0;
       if (effect) {

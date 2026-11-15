@@ -1170,12 +1170,14 @@ function Cockpit({
     // warp tunnel covers the screen. Morph (or no frame ready): steer the
     // live shot through a warp beat into the new world.
     const frame = jumpModeRef.current === "cut" ? frames.current.get(dest.id) : undefined;
+    // Into the wormhole (both modes): it hides a cut's restart and a
+    // morph's in-between frames until the new world is on screen.
+    cutFx.current?.begin();
     let arriving: boolean;
     if (frame) {
       const scene = sceneOf(dest);
       const prompt = composePrompt(scene, helmRef.current);
       if (process.env.NODE_ENV === "development") console.info("[orbis cut]", dest.name, prompt);
-      cutFx.current?.begin(); // freeze the old world before the reset blanks it
       arriving = await session.cutTo(frame, prompt);
       if (!arriving) cutFx.current?.finish();
       if (arriving) lastScene.current = scene;
@@ -1187,6 +1189,7 @@ function Cockpit({
     }
     if (!stillFlying()) return;
     if (!arriving) {
+      cutFx.current?.finish();
       audio.current?.stopTransit();
       sceneLock.current = "free";
       setTarget(null);
