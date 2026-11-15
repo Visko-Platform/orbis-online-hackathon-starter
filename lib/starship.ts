@@ -28,7 +28,18 @@ export type Destination = {
   clue?: string;
   /** The mission resolves here. */
   finale?: boolean;
+  /** One gentle sentence of MUSIC for this world (never a scene description:
+   *  Orbis's audio gets worse when the sound prompt describes the picture). */
+  music?: string;
 };
+
+/** Gentle default score for worlds without their own cue. */
+export const DEFAULT_MUSIC =
+  "A gentle cinematic ambient score: soft sustained strings and warm synth pads, slow and spacious.";
+
+export function musicFor(destination: Destination) {
+  return destination.music ?? DEFAULT_MUSIC;
+}
 
 // ---- Helm: throttle and bank turn into the motion clause of every prompt.
 
@@ -129,6 +140,7 @@ export const MISSIONS: Mission[] = [
 
 export const ORIGIN: Destination = {
   id: "nebula",
+  music: "Slow ethereal ambient pads with a soft celesta melody and distant shimmering chimes.",
   name: "Cassia Nebula",
   era: "Drift",
   log: "Holding in the Cassia Nebula. Drive warm, star map live.",
@@ -139,6 +151,7 @@ export const ORIGIN: Destination = {
 export const DESTINATIONS: Destination[] = [
   {
     id: "cretaceous",
+    music: "Warm gentle orchestral strings with soft wooden flute and low hand drums, unhurried and majestic.",
     name: "Cretaceous Earth",
     era: "66,000,000 BC",
     log: "Late Cretaceous. Herds in the river valley, volcano active to the north.",
@@ -147,6 +160,7 @@ export const DESTINATIONS: Destination[] = [
   },
   {
     id: "alexandria",
+    music: "Gentle oud and lyre melody over soft strings and a slow frame drum, warm and sunlit.",
     name: "Alexandria",
     era: "250 BC",
     log: "Alexandria. The lighthouse is lit. Sailing ships in the harbour.",
@@ -155,6 +169,7 @@ export const DESTINATIONS: Destination[] = [
   },
   {
     id: "megacity",
+    music: "Mellow downtempo synthwave: soft analog pads, a slow muted bassline and light electric piano.",
     name: "Neon Megacity",
     era: "2199 AD",
     log: "2199. Acid rain, heavy traffic far below. Keep altitude.",
@@ -163,6 +178,7 @@ export const DESTINATIONS: Destination[] = [
   },
   {
     id: "europa",
+    music: "Sparse glassy piano notes over a cold, slow ambient drone, quiet and vast.",
     name: "Europa",
     era: "2471 AD",
     log: "Europa. Minus 160 outside. Geysers venting along the ridge.",
@@ -171,6 +187,7 @@ export const DESTINATIONS: Destination[] = [
   },
   {
     id: "vey",
+    music: "Shimmering glass harmonica and soft choir pads, slow, dreamy and bright.",
     name: "Glass Dunes of Vey",
     era: "3120 AD",
     log: "Vey. Twin suns, crystal dunes. Glare filters on.",
@@ -179,6 +196,7 @@ export const DESTINATIONS: Destination[] = [
   },
   {
     id: "lastsunset",
+    music: "A slow, tender solo cello over warm low strings, quiet and bittersweet.",
     name: "The Last Sunset",
     era: "1,000,000 AD",
     log: "One million AD. The sun is red and enormous. Ocean to every horizon.",
@@ -195,6 +213,7 @@ export const DESTINATIONS: Destination[] = [
 export const LIBRARY_EXTRA: Destination[] = [
   {
     id: "impactor",
+    music: "Low pulsing synth bass and tense, soft string swells, restrained and suspenseful.",
     name: "The Impactor",
     era: "2183 AD",
     log: "Contact. A mountain of rock on course for Earth.",
@@ -203,6 +222,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "saturn",
+    music: "Floating ambient pads with soft bell tones and a slow, wide string chord.",
     name: "Rings of Saturn",
     era: "2390 AD",
     log: "Inside the rings. Ice everywhere. Shields up.",
@@ -211,6 +231,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "atlantis",
+    music: "Gentle harp arpeggios over warm strings and a soft wordless choir.",
     name: "Atlantis",
     era: "9600 BC",
     log: "Atlantis, intact. Nobody will ever believe this.",
@@ -219,6 +240,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "giza",
+    music: "Slow ney flute and soft frame drum over a warm sustained string drone.",
     name: "Giza Plateau",
     era: "2560 BC",
     log: "Giza, mid-construction. The capstone is still gold.",
@@ -227,6 +249,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "iceage",
+    music: "Soft low brass and gentle wind chimes over a slow, cold string pad.",
     name: "Ice Age Tundra",
     era: "20,000 BC",
     log: "Last glacial maximum. Mammoths, minus thirty, no regrets.",
@@ -235,6 +258,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "titan",
+    music: "Deep, slow ambient drones with soft distant bell tones, alien and calm.",
     name: "Titan",
     era: "3010 AD",
     log: "Titan. Methane rain, orange sky. Lovely, in a toxic way.",
@@ -243,6 +267,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "deepreef",
+    music: "Soft underwater ambient pads with gentle marimba and slow, rippling harp.",
     name: "The Deep Reef",
     era: "2300 AD",
     log: "Underwater. Bioluminescence everywhere. Hull is holding.",
@@ -251,6 +276,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "venice",
+    music: "Gentle baroque strings and harpsichord playing a slow, graceful melody.",
     name: "Venice at Carnival",
     era: "1750 AD",
     log: "Venice, carnival night. We are underdressed.",
@@ -259,6 +285,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "mars",
+    music: "Hopeful soft piano and warm strings over a gentle, slow synth pulse.",
     name: "Terraformed Mars",
     era: "2600 AD",
     log: "Mars, two centuries into terraforming. The canyons are green.",
@@ -267,6 +294,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "aurora",
+    music: "A slow Nordic folk melody on soft fiddle and low strings, with a gentle drone.",
     name: "Aurora Fjord",
     era: "1000 AD",
     log: "A northern fjord, Viking age. The sky is on fire, politely.",
@@ -275,6 +303,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "clockwork",
+    music: "Gentle music-box melody with soft pizzicato strings and a slow ticking pulse.",
     name: "Clockwork City",
     era: "1890 AD",
     log: "A city of brass and steam. Everything ticks.",
@@ -283,6 +312,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "dyson",
+    music: "Vast slow synth pads and soft choir swelling gently, awe-struck and calm.",
     name: "The Dyson Swarm",
     era: "50,000 AD",
     log: "A star wrapped in machinery. Someone was very ambitious.",
@@ -291,6 +321,7 @@ export const LIBRARY_EXTRA: Destination[] = [
   },
   {
     id: "skyisles",
+    music: "Light airy flute and harp over soft rising strings, bright and peaceful.",
     name: "The Sky Isles",
     era: "4400 AD",
     log: "Floating islands, no visible means of support. Rude.",

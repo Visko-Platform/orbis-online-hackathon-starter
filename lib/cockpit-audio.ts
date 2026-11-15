@@ -175,6 +175,86 @@ export class CockpitAudio {
     }
   }
 
+  // ---- Transit: a sustained teleport layer from the jump until arrival.
+  // A rushing band of noise swept by a slow LFO, two detuned tones rising
+  // gently, and an occasional glassy shimmer. stopTransit() fades it out.
+  private transit: {
+    gain: GainNode;
+    nodes: AudioScheduledSourceNode[];
+    shimmer: number;
+  } | null = null;
+
+  startTransit() {
+    if (this.transit) return;
+    const context = this.context;
+    const now = context.currentTime;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.5, now + 1.6); // swells in after the charge-up
+    gain.connect(this.master);
+    const nodes: AudioScheduledSourceNode[] = [];
+
+    // Rushing air: noise through a band-pass whose centre sweeps slowly.
+    const rush = context.createBufferSource();
+    rush.buffer = this.whiteNoise(3);
+    rush.loop = true;
+    const band = context.createBiquadFilter();
+    band.type = "bandpass";
+    band.Q.value = 0.9;
+    band.frequency.value = 900;
+    const sweep = context.createOscillator();
+    sweep.frequency.value = 0.35;
+    const sweepDepth = context.createGain();
+    sweepDepth.gain.value = 600;
+    sweep.connect(sweepDepth).connect(band.frequency);
+    const rushGain = context.createGain();
+    rushGain.gain.value = 0.22;
+    rush.connect(band).connect(rushGain).connect(gain);
+    nodes.push(rush, sweep);
+
+    // Two detuned tones drifting slowly upward: the drive holding the jump.
+    for (const [from, to] of [
+      [110, 165],
+      [110.8, 166.2],
+    ]) {
+      const tone = context.createOscillator();
+      tone.type = "sine";
+      tone.frequency.setValueAtTime(from, now);
+      tone.frequency.linearRampToValueAtTime(to, now + 12);
+      const toneGain = context.createGain();
+      toneGain.gain.value = 0.05;
+      tone.connect(toneGain).connect(gain);
+      nodes.push(tone);
+    }
+    for (const node of nodes) node.start(now);
+
+    // A soft shimmer every so often, so it never sounds static.
+    const shimmer = window.setInterval(() => {
+      const at = context.currentTime + Math.random() * 0.2;
+      this.ping(at, 1800 + Math.random() * 2200, 0.02, 0.4);
+    }, 420);
+
+    this.transit = { gain, nodes, shimmer };
+  }
+
+  stopTransit() {
+    const transit = this.transit;
+    if (!transit) return;
+    this.transit = null;
+    window.clearInterval(transit.shimmer);
+    const now = this.context.currentTime;
+    transit.gain.gain.cancelScheduledValues(now);
+    transit.gain.gain.setValueAtTime(Math.max(transit.gain.gain.value, 0.0001), now);
+    transit.gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    for (const node of transit.nodes) {
+      try {
+        node.stop(now + 0.75);
+      } catch {
+        // Already stopped.
+      }
+    }
+  }
+
   /** Detonation: a noise blast through a closing filter over a sub drop. */
   explode() {
     const context = this.context;
@@ -221,6 +301,7 @@ export class CockpitAudio {
   }
 
   dispose() {
+    this.stopTransit();
     void this.context.close();
   }
 

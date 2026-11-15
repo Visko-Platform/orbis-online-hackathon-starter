@@ -50,6 +50,7 @@ import {
   POINTS,
   HELM_THROTTLES,
   LIBRARY,
+  musicFor,
   sceneOf,
   THROTTLES,
 } from "@/lib/starship";
@@ -224,6 +225,10 @@ function Cockpit({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(0);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
+  /** Gentle per-world music via Orbis's sound prompt (Music button). */
+  const [musicOn, setMusicOn] = useState(true);
+  const musicRef = useRef(musicOn);
+  musicRef.current = musicOn;
   /** Push-to-talk: true while the captain holds Space / the TALK button. */
   const [listening, setListening] = useState(false);
   /** What the captain just said (shown as a CAPTAIN subtitle). */
@@ -280,6 +285,10 @@ function Cockpit({
   const branchPlans = useRef<Promise<DirectorPlan>[] | null>(null);
   const hereRef = useRef(here);
   hereRef.current = here;
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  /** Rehearsal: rumble until this time even when not really jumping. */
+  const rumbleUntil = useRef(0);
   /** Dev layout preview: flying without a session must not auto-dock. */
   const previewing = useRef(false);
   const beats = useRef(0);
@@ -351,6 +360,7 @@ function Cockpit({
     let bumpX = 0;
     let bumpY = 0;
     let nextBump = performance.now() + 6_000 + Math.random() * 8_000;
+    let rumble = 0; // travel shudder, eased in and out
     let frame = 0;
     let last = performance.now();
     const tick = (time: number) => {
@@ -371,7 +381,18 @@ function Cockpit({
       const sx = (Math.sin(t * 0.37 + phase[0]) * 1.4 + Math.sin(t * 0.83 + phase[1]) * 0.6) * amp + bumpX * wobble * 2;
       const sy = (Math.sin(t * 0.29 + phase[2]) * 1.1 + Math.sin(t * 0.71 + phase[3]) * 0.5) * amp + bumpY * wobble * 2.4;
       const sr = (Math.sin(t * 0.21 + phase[4]) * 0.14 + Math.sin(t * 0.53 + phase[5]) * 0.06) * amp + bumpX * wobble * 0.12;
+      // Travel rumble: a fast, low shudder while jumping (its own layer, so
+      // the cabin's smoothing doesn't blur it).
+      const travelling = phaseRef.current === "jumping" || time < rumbleUntil.current;
+      rumble += ((travelling ? 1 : 0) - rumble) * (1 - Math.exp(-dt * 3));
+      const shudder = rumble * (throttle === "boost" ? 1.3 : 1);
+      const rx = (Math.sin(t * 31 + phase[0]) * 0.6 + Math.sin(t * 53) * 0.3 + (Math.random() - 0.5) * 0.5) * 2.2 * shudder;
+      const ry = (Math.sin(t * 37 + phase[2]) * 0.6 + Math.sin(t * 61) * 0.3 + (Math.random() - 0.5) * 0.5) * 1.8 * shudder;
+      const rr = (Math.sin(t * 23 + phase[4]) * 0.08 + (Math.random() - 0.5) * 0.04) * shudder;
       const style = stage.current?.style;
+      style?.setProperty("--rx", rx.toFixed(2));
+      style?.setProperty("--ry", ry.toFixed(2));
+      style?.setProperty("--rr", rr.toFixed(3));
       style?.setProperty("--sx", sx.toFixed(2));
       style?.setProperty("--sy", sy.toFixed(2));
       style?.setProperty("--sr", sr.toFixed(3));
@@ -579,6 +600,7 @@ function Cockpit({
     setPhase("flying");
     addLog(`[${dest.era}] ${dest.log}`);
     sceneLock.current = "free";
+    if (musicRef.current && how === "jump") void session.setAudioPrompt(musicFor(dest));
     const image = captureFrame(640);
     if (image) {
       setPostcards((current) => [
@@ -959,8 +981,9 @@ function Cockpit({
     starting.current = true;
     const into = opening.current;
     void (async () => {
-      // Empty sound prompt: Orbis makes its audio from the picture itself.
-      await session.setAudioPrompt("");
+      // Sound: the opening world's gentle music cue (or, with music off, an
+      // empty prompt so Orbis makes its audio from the picture itself).
+      await session.setAudioPrompt(musicRef.current ? musicFor(into) : "");
       sceneLock.current = "launch";
       const flight = voyage.current;
       // Image-anchored launch: Orbis holds composition far better from a
@@ -1131,6 +1154,7 @@ function Cockpit({
     // Urgent: her "drive engaged" line must land with the warp, not after it.
     tellVesta(`The Captain chose ${dest.name} (${dest.era}). The drive engages NOW: one short line.`, Priority.Urgent);
     audio.current?.teleport();
+    audio.current?.startTransit(); // holds until we arrive
     firePulse("jump");
     shake();
 
@@ -1155,6 +1179,7 @@ function Cockpit({
     }
     if (!stillFlying()) return;
     if (!arriving) {
+      audio.current?.stopTransit();
       sceneLock.current = "free";
       setTarget(null);
       setPhase("flying");
@@ -1165,6 +1190,7 @@ function Cockpit({
     // new world is on screen, or after 10 s at most.
     await waitUntilSeen(dest.view, stillFlying, 10_000);
     cutFx.current?.finish(); // dissolve into the new world (no-op after a morph)
+    audio.current?.stopTransit();
     if (!stillFlying()) return;
     audio.current?.arrive();
     firePulse("arrive");
@@ -1288,8 +1314,17 @@ function Cockpit({
     audio.current ??= new CockpitAudio();
     audio.current.start();
     if (kind === "jump") {
-      audio.current.teleport();
+      // A full jump: charge-up, ~6 s of transit with rumble, then arrival.
+      const engine = audio.current;
+      engine.teleport();
+      engine.startTransit();
+      rumbleUntil.current = performance.now() + 6_000;
       shake();
+      window.setTimeout(() => {
+        engine.stopTransit();
+        engine.arrive();
+        firePulse("arrive");
+      }, 6_000);
     } else {
       audio.current.arrive();
     }
@@ -1834,6 +1869,17 @@ function Cockpit({
             Log ({postcards.length})
           </button>
         )}
+        <button
+          type="button"
+          title="Gentle per-world music through Orbis's sound prompt"
+          onClick={() => {
+            const next = !musicOn;
+            setMusicOn(next);
+            if (session.runStarted) void session.setAudioPrompt(next ? musicFor(hereRef.current) : "");
+          }}
+        >
+          Music: {musicOn ? "On" : "Off"}
+        </button>
         <button
           type="button"
           className={`sw-talk ${listening ? "is-on" : ""}`}

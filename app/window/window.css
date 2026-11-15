@@ -113,6 +113,11 @@
 .sw-cabin-inner {
   position: absolute;
   inset: 0;
+  /* Travel rumble (--rx/--ry/--rr, written every frame while jumping). The
+     individual translate/rotate properties stack with the shake animation's
+     transform instead of being overridden by it. */
+  translate: calc(var(--rx, 0) * 1px) calc(var(--ry, 0) * 1px);
+  rotate: calc(var(--rr, 0) * 1deg);
 }
 
 .sw-cabin-inner.is-shaking {
