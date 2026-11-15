@@ -64,9 +64,17 @@ export class Copilot {
     this.output.connect(this.analyser);
   }
 
+  private resumeHandle: string | null = null;
+  private reconnecting = false;
+  private failures = 0;
+
   async connect() {
     void this.context.resume();
-    const response = await fetch("/api/live-token", { method: "POST" });
+    const response = await fetch("/api/live-token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: this.resumeHandle ?? undefined }),
+    });
     const result = (await response.json().catch(() => ({}))) as {
       token?: string;
       error?: string;
@@ -79,7 +87,7 @@ export class Copilot {
       apiKey: result.token,
       httpOptions: { apiVersion: "v1alpha" },
     });
-    this.session = await ai.live.connect({
+    const session = await ai.live.connect({
       model: COPILOT_MODEL,
       // Must match the config the token is locked to (same shared object).
       config: COPILOT_SESSION_CONFIG,
@@ -87,11 +95,40 @@ export class Copilot {
         onmessage: (message) => this.handle(message),
         onerror: () => this.events.onError("Copilot connection error"),
         onclose: () => {
-          if (!this.closed) this.events.onError("Copilot went offline");
+          // Only the live socket counts; an old one closing after a swap doesn't.
+          if (this.closed || this.session !== session) return;
+          void this.reconnect();
         },
       },
     });
+    this.session = session;
+    this.failures = 0;
     this.flushIfQuiet();
+  }
+
+  /** Google closed the socket (time limit, goAway, blip): come straight back,
+   * resuming the same conversation when we have a handle. Messages sent
+   * meanwhile wait in the queue. */
+  private async reconnect() {
+    if (this.closed || this.reconnecting) return;
+    this.reconnecting = true;
+    const old = this.session;
+    this.session = null;
+    this.replying = false;
+    old?.close();
+    while (!this.closed && this.failures < 4) {
+      try {
+        await this.connect();
+        break;
+      } catch {
+        this.failures += 1;
+        // A stale handle can fail to resume: retry fresh after the first miss.
+        if (this.failures >= 2) this.resumeHandle = null;
+        await new Promise((resolve) => window.setTimeout(resolve, 1_000 * this.failures));
+      }
+    }
+    this.reconnecting = false;
+    if (!this.session && !this.closed) this.events.onError("Copilot went offline");
   }
 
   // ---- Speaking queue. Gemini sends her transcript faster than she speaks
@@ -264,6 +301,19 @@ export class Copilot {
   }
 
   private handle(message: LiveServerMessage) {
+    const update = message.sessionResumptionUpdate;
+    if (update?.resumable && update.newHandle) this.resumeHandle = update.newHandle;
+    // The server warns before it drops us; swap sockets after her current
+    // line so she isn't cut off mid-sentence.
+    if (message.goAway) {
+      const doomed = this.session;
+      const swap = () => {
+        if (this.closed || this.session !== doomed) return;
+        if (this.replying || this.sources.size > 0) window.setTimeout(swap, 300);
+        else void this.reconnect();
+      };
+      swap();
+    }
     if (message.toolCall?.functionCalls?.length) void this.runTools(message.toolCall.functionCalls);
     const content = message.serverContent;
     if (!content) return;

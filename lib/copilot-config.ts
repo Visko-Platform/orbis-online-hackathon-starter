@@ -129,4 +129,10 @@ export const COPILOT_SESSION_CONFIG: LiveConnectConfig = {
   realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
   systemInstruction: COPILOT_INSTRUCTION,
   tools: COPILOT_TOOLS,
+  // She sees a frame every second; without compression Gemini Live ends an
+  // audio+video session after ~2 minutes. Sliding-window compression lifts
+  // that cap, and resumption lets her reconnect (Google recycles the socket
+  // every ~10 min) without forgetting the flight.
+  contextWindowCompression: { slidingWindow: {} },
+  sessionResumption: {},
 };

@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 // captions, persona): a constrained token ignores whatever config the client
 // sends, so everything she needs must be baked in here. The real
 // GEMINI_API_KEY never leaves the server.
-export async function POST() {
+export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -18,6 +18,9 @@ export async function POST() {
       { status: 500 },
     );
   }
+
+  const body = (await request.json().catch(() => ({}))) as { handle?: unknown };
+  const handle = typeof body.handle === "string" && body.handle.length < 4096 ? body.handle : undefined;
 
   try {
     const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: "v1alpha" } });
@@ -30,7 +33,11 @@ export async function POST() {
         newSessionExpireTime: new Date(now + 2 * 60_000).toISOString(),
         liveConnectConstraints: {
           model: COPILOT_MODEL,
-          config: COPILOT_SESSION_CONFIG,
+          // The token locks the config, so a reconnect's resumption handle
+          // has to be baked in here rather than sent by the client.
+          config: handle
+            ? { ...COPILOT_SESSION_CONFIG, sessionResumption: { handle } }
+            : COPILOT_SESSION_CONFIG,
         },
         httpOptions: { apiVersion: "v1alpha" },
       },
