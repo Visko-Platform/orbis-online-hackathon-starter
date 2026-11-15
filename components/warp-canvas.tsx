@@ -103,7 +103,7 @@ export function WarpCanvas({
       const dt = Math.min((time - last) / 1000, 0.05);
       last = time;
       context.clearRect(0, 0, width, height);
-      cruise += ((sustainRef.current ? 0.2 : 0) - cruise) * (1 - Math.exp(-dt * 2.2)); // soft: the wormhole leads
+      cruise += ((sustainRef.current ? 0.07 : 0) - cruise) * (1 - Math.exp(-dt * 2.2)); // soft: the wormhole leads
       let effect = started.current;
       let t = 0;
       if (effect) {
@@ -128,8 +128,8 @@ export function WarpCanvas({
 
         // Bloom at the vanishing point.
         const bloom = context.createRadialGradient(cx, cy, 0, cx, cy, reach * 0.45);
-        bloom.addColorStop(0, `rgba(205,232,255,${0.7 * level})`);
-        bloom.addColorStop(0.35, `rgba(140,165,255,${0.22 * level})`);
+        bloom.addColorStop(0, `rgba(205,232,255,${0.4 * level})`);
+        bloom.addColorStop(0.35, `rgba(140,165,255,${0.12 * level})`);
         bloom.addColorStop(1, "rgba(140,160,255,0)");
         context.fillStyle = bloom;
         context.fillRect(0, 0, width, height);
