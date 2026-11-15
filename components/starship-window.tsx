@@ -201,13 +201,13 @@ function Cockpit({
   const [now, setNow] = useState(() => Date.now());
   /** Two independent faders (0–1): Orbis's world sound and VESTA's voice. */
   const [worldLevel, setWorldLevel] = useState(0.8);
-  const [helm, setHelm] = useState<Helm>({ throttle: "cruise", bank: 0 });
-  /** A/B: the throttle a flight starts at (?throttle=boost); cruise default. */
-  const [startSpeed, setStartSpeed] = useState<"cruise" | "boost">("cruise");
+  const [helm, setHelm] = useState<Helm>({ throttle: "boost", bank: 0 });
+  /** The throttle a flight starts at: boost by default; ?throttle=cruise A/Bs. */
+  const [startSpeed, setStartSpeed] = useState<"cruise" | "boost">("boost");
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("throttle") === "boost") {
-      setStartSpeed("boost");
-      setHelm((current) => ({ ...current, throttle: "boost" }));
+    if (new URLSearchParams(window.location.search).get("throttle") === "cruise") {
+      setStartSpeed("cruise");
+      setHelm((current) => ({ ...current, throttle: "cruise" }));
     }
   }, []);
   const [mission, setMission] = useState<Mission>(MISSIONS[0]);
@@ -1733,7 +1733,7 @@ function Cockpit({
             const next = startSpeed === "cruise" ? "boost" : "cruise";
             setStartSpeed(next);
             setHelm((current) => ({ ...current, throttle: next }));
-            setParam("throttle", next === "boost" ? "boost" : null, false);
+            setParam("throttle", next === "cruise" ? "cruise" : null, false);
           }}
         >
           Start: {startSpeed === "cruise" ? "Cruise" : "Boost"}
