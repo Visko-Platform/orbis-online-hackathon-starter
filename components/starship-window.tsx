@@ -225,6 +225,46 @@ function Cockpit({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(0);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
+  /** Presentation mode (Z or ?present=1): hides the top bar and, when the
+   *  mouse is still, the cursor. Pure cockpit for screen recordings. */
+  const [presenting, setPresenting] = useState(false);
+  const [cursorIdle, setCursorIdle] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("present") === "1") setPresenting(true);
+  }, []);
+  useEffect(() => {
+    if (!presenting) {
+      setCursorIdle(false);
+      return;
+    }
+    let timer = window.setTimeout(() => setCursorIdle(true), 2_000);
+    const onMove = () => {
+      setCursorIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setCursorIdle(true), 2_000);
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointermove", onMove);
+    };
+  }, [presenting]);
+  /** Hold-to-dock on the console: true while the key is held down. */
+  const [dockHold, setDockHold] = useState(false);
+  const dockTimer = useRef<number | null>(null);
+  const startDockHold = () => {
+    if (!session.connected || phase === "launching") return;
+    setDockHold(true);
+    dockTimer.current = window.setTimeout(() => {
+      setDockHold(false);
+      void session.disconnectSession();
+    }, 1_000);
+  };
+  const cancelDockHold = () => {
+    if (dockTimer.current) window.clearTimeout(dockTimer.current);
+    dockTimer.current = null;
+    setDockHold(false);
+  };
   /** Gentle per-world music via Orbis's sound prompt (Music button). */
   const [musicOn, setMusicOn] = useState(true);
   const musicRef = useRef(musicOn);
@@ -1521,6 +1561,7 @@ function Cockpit({
       else if (key === "v") void current.rehearseVesta();
       else if (key === "f") void current.previewLayout("flying");
       else if (key === "g") setView((current) => (current === "a" ? "b" : "a"));
+      else if (key === "z") setPresenting((current) => !current);
       else if (key === "c") setJumpMode((current) => (current === "cut" ? "morph" : "cut"));
       else if (key === "q") current.decide(0);
       else if (key === "e") current.decide(1);
@@ -1540,7 +1581,11 @@ function Cockpit({
   const shown = target ?? here;
 
   return (
-    <div className={`sw ${view === "b" ? "view-focus" : ""}`}>
+    <div
+      className={`sw ${view === "b" ? "view-focus" : ""} ${presenting ? "is-presenting" : ""} ${
+        presenting && cursorIdle ? "is-cursor-idle" : ""
+      }`}
+    >
       <AmbientGlow />
       <div className="sw-stage" ref={stage}>
         <div className="sw-world">
@@ -1744,11 +1789,27 @@ function Cockpit({
                     ))}
                   </ol>
                   {session.error && <p className="sw-error">{session.error}</p>}
-                  {flying && (
-                    <button type="button" className="sw-plot-key" onClick={() => setPlotting(true)}>
-                      Plot custom course (P)
-                    </button>
-                  )}
+                  <div className="sw-screen-keys">
+                    {flying && (
+                      <button type="button" className="sw-plot-key" onClick={() => setPlotting(true)}>
+                        Plot course (P)
+                      </button>
+                    )}
+                    {(session.connected || (process.env.NODE_ENV === "development" && previewing.current)) &&
+                      phase !== "launching" && (
+                      <button
+                        type="button"
+                        className={`sw-dock-key ${dockHold ? "is-holding" : ""}`}
+                        title="Hold to dock and end the flight"
+                        onPointerDown={startDockHold}
+                        onPointerUp={cancelDockHold}
+                        onPointerLeave={cancelDockHold}
+                      >
+                        <span className="sw-dock-fill" aria-hidden />
+                        {dockHold ? "Docking…" : "Hold to dock"}
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -1923,6 +1984,13 @@ function Cockpit({
             Log ({postcards.length})
           </button>
         )}
+        <button
+          type="button"
+          title="Presentation mode: hide this bar and the idle cursor (Z)"
+          onClick={() => setPresenting(true)}
+        >
+          Present (Z)
+        </button>
         <button
           type="button"
           title="Gentle per-world music through Orbis's sound prompt"

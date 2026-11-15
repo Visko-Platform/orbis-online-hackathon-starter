@@ -1735,3 +1735,65 @@ label.sw-mix {
   background: #ff8a5c;
   border-color: #ff8a5c;
 }
+
+/* Presentation mode: pure cockpit. */
+.sw.is-presenting .sw-corner {
+  display: none;
+}
+
+.sw.is-cursor-idle,
+.sw.is-cursor-idle * {
+  cursor: none !important;
+}
+
+/* Console keys on the centre screen: plot, and hold-to-dock. */
+.sw-screen-keys {
+  display: flex;
+  gap: 0.35cqw;
+}
+
+.sw-dock-key {
+  position: relative;
+  overflow: hidden;
+  padding: 0.1cqw 0.45cqw;
+  color: #ffb37a;
+  font: inherit;
+  font-size: 0.45cqw;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  background: rgba(60, 20, 6, 0.6);
+  border: 1px solid rgba(255, 138, 92, 0.55);
+  border-radius: 0.15cqw;
+  user-select: none;
+  touch-action: none;
+}
+
+.sw-dock-key:hover {
+  border-color: rgba(255, 138, 92, 0.95);
+  box-shadow: 0 0 0.6cqw rgba(255, 120, 60, 0.4);
+}
+
+/* The fill charges for the 1 s hold; release early to cancel. */
+.sw-dock-fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(255, 138, 92, 0.45);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.sw-dock-key.is-holding .sw-dock-fill {
+  transform: scaleX(1);
+  transition: transform 1s linear;
+}
+
+.sw-dock-key.is-holding {
+  color: #fff1e6;
+}
+
+.sw-screen-keys .sw-plot-key,
+.sw-screen-keys .sw-dock-key {
+  font-size: 0.42cqw;
+  white-space: nowrap;
+}
