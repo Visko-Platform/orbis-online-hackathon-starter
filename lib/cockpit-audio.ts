@@ -280,6 +280,54 @@ export class CockpitAudio {
     sub.stop(now + 2.6);
   }
 
+  /** Bay doors closing: servo whine and air hiss, ending in a heavy clunk
+   * (timed to the doors meeting about `seconds` from now). */
+  seal(seconds = 1.6) {
+    const context = this.context;
+    const now = context.currentTime;
+
+    const servo = context.createOscillator();
+    servo.type = "sawtooth";
+    servo.frequency.setValueAtTime(70, now);
+    servo.frequency.linearRampToValueAtTime(52, now + seconds);
+    const servoFilter = context.createBiquadFilter();
+    servoFilter.type = "lowpass";
+    servoFilter.frequency.value = 380;
+    const servoGain = this.envelope(now, 0.0001, 0.12, 0.25, seconds);
+    servo.connect(servoFilter).connect(servoGain).connect(this.master);
+    servo.start(now);
+    servo.stop(now + seconds + 0.2);
+
+    const hiss = context.createBufferSource();
+    hiss.buffer = this.whiteNoise(seconds + 0.6);
+    const hissFilter = context.createBiquadFilter();
+    hissFilter.type = "bandpass";
+    hissFilter.frequency.setValueAtTime(2400, now);
+    hissFilter.frequency.exponentialRampToValueAtTime(700, now + seconds + 0.5);
+    const hissGain = this.envelope(now, 0.0001, 0.07, 0.4, seconds + 0.2);
+    hiss.connect(hissFilter).connect(hissGain).connect(this.master);
+    hiss.start(now);
+
+    const at = now + seconds;
+    const clunk = context.createOscillator();
+    clunk.type = "sine";
+    clunk.frequency.setValueAtTime(95, at);
+    clunk.frequency.exponentialRampToValueAtTime(30, at + 0.5);
+    const clunkGain = this.envelope(at, 0.0001, 0.75, 0.008, 0.9);
+    clunk.connect(clunkGain).connect(this.master);
+    clunk.start(at);
+    clunk.stop(at + 1.1);
+
+    const knock = context.createBufferSource();
+    knock.buffer = this.whiteNoise(0.3);
+    const knockFilter = context.createBiquadFilter();
+    knockFilter.type = "lowpass";
+    knockFilter.frequency.value = 600;
+    const knockGain = this.envelope(at, 0.0001, 0.35, 0.004, 0.18);
+    knock.connect(knockFilter).connect(knockGain).connect(this.master);
+    knock.start(at);
+  }
+
   /** Arrival: a deep drop with a short sparkle tail. */
   arrive() {
     const context = this.context;

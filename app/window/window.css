@@ -1062,6 +1062,24 @@
   transform: translateY(102%);
 }
 
+/* Docking: the doors slide in from open and meet heavily; they stay shut. */
+.sw-shield.is-sealing .sw-shield-top {
+  animation: sw-seal-top 1.6s cubic-bezier(0.5, 0, 0.75, 1) both;
+}
+.sw-shield.is-sealing .sw-shield-bottom {
+  animation: sw-seal-bottom 1.6s cubic-bezier(0.5, 0, 0.75, 1) both;
+}
+@keyframes sw-seal-top {
+  from { transform: translateY(-102%); }
+  92% { transform: translateY(0.6%); }
+  to { transform: translateY(0); }
+}
+@keyframes sw-seal-bottom {
+  from { transform: translateY(102%); }
+  92% { transform: translateY(-0.6%); }
+  to { transform: translateY(0); }
+}
+
 .sw-briefing {
   position: absolute;
   top: 44%;

@@ -99,6 +99,10 @@ export function composePrompt(scene: string, helm: Helm) {
 }
 
 /** Step one of every jump; the destination follows a few seconds later. */
+/** The docking approach: the last scene of every flight. */
+export const HOME_BAY =
+  "gliding slowly forward toward the open docking bay of a vast dark mothership in orbit, rows of amber guide lights leading into the hangar mouth, the ship's hull filling the frame, the hangar interior glowing softly ahead as we ease in to dock";
+
 export const JUMP_PROMPT =
   "The camera accelerates forward through space as the stars stretch into long streaks of white and blue light rushing toward the edges of the frame, a brilliant glow at the centre. A single unbroken take.";
 

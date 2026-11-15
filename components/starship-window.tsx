@@ -38,6 +38,7 @@ import {
 import {
   DESTINATIONS,
   type Destination,
+  HOME_BAY,
   JUMP_PROMPT,
   ORIGIN,
   plottedCourse,
@@ -55,7 +56,7 @@ import {
   THROTTLES,
 } from "@/lib/starship";
 
-type Phase = "docked" | "launching" | "briefing" | "flying" | "jumping";
+type Phase = "docked" | "launching" | "briefing" | "flying" | "jumping" | "docking";
 
 /** The Impactor finale, step by step. */
 type Detonation = "none" | "arrived" | "planted" | "countdown" | "done";
@@ -279,6 +280,8 @@ function Cockpit({
   const [showReel, setShowReel] = useState(false);
   const [score, setScore] = useState(0);
   const [shieldOpening, setShieldOpening] = useState(false);
+  /** Docking: the shield doors slide shut over the bay; stay shut while docked. */
+  const [sealed, setSealed] = useState(false);
   const [helmOpen, setHelmOpen] = useState(false);
   const [missionOpen, setMissionOpen] = useState(false);
   const helmTimer = useRef<number | null>(null);
@@ -318,7 +321,7 @@ function Cockpit({
     setDockHold(true);
     dockTimer.current = window.setTimeout(() => {
       setDockHold(false);
-      void session.disconnectSession();
+      dockRef.current();
     }, 1_000);
   };
   const cancelDockHold = () => {
@@ -1028,6 +1031,7 @@ function Cockpit({
   // starts here: the engine, the copilot, and Orbis's own sound.
   const launch = (into: Destination = ORIGIN) => {
     if (phase !== "docked") return;
+    setSealed(false);
     opening.current = into;
     previewing.current = false;
     helmRef.current = { throttle: startSpeed, bank: 0 };
@@ -1132,7 +1136,7 @@ function Cockpit({
 
   // ---- The flight ends when the session does (dock, error, or the time cap).
   useEffect(() => {
-    if ((phase === "flying" || phase === "jumping" || phase === "briefing") && !session.connected && !previewing.current) {
+    if ((phase === "flying" || phase === "jumping" || phase === "briefing" || phase === "docking") && !session.connected && !previewing.current) {
       voyage.current += 1;
       world.current += 1;
       sceneLock.current = "free";
@@ -1316,6 +1320,77 @@ function Cockpit({
     firePulse("arrive");
     arrive(dest, "jump");
   };
+
+  // ---- Docking: the end of every flight. A last portal home, a slow glide
+  // into the bay, the shield doors slide shut, and the session ends behind
+  // them. Outside open flight (briefing, mid-jump) it just ends.
+  const dock = async () => {
+    if (!session.connected) return;
+    if (phase !== "flying") {
+      if (phase !== "docking") void session.disconnectSession();
+      return;
+    }
+    const flight = voyage.current;
+    const stillFlying = () => voyage.current === flight;
+    const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+    world.current += 1; // cancels this world's pending scan and event
+    sceneLock.current = "jump";
+    clearEventTimer();
+    setEmergency(null);
+    setAlert(null);
+    setPlotting(false);
+    setScanned(null);
+    setDetonation((current) => (current === "done" ? "done" : "none"));
+    setPhase("docking");
+    setTarget(null);
+    helmRef.current = { throttle: "drift", bank: 0 };
+    setHelm(helmRef.current);
+    addLog("Course laid in for home. Docking.");
+    tellVesta("The Captain is taking us home. The drive engages for the last jump: one short line.", Priority.Urgent);
+    audio.current?.teleport();
+    audio.current?.startTransit();
+    firePulse("jump");
+    shake();
+
+    let baseline = thumbnail();
+    cutFx.current?.begin();
+    const intoJump = await session.steerTo(JUMP_PROMPT);
+    if (intoJump) await waitChunks(1, 2_500);
+    if (!stillFlying()) return;
+    const home = await steer(HOME_BAY);
+    baseline = thumbnail() ?? baseline;
+    if (home) await waitForNewWorld(baseline, stillFlying, 10_000);
+    cutFx.current?.finish();
+    audio.current?.stopTransit();
+    if (!stillFlying()) return;
+    audio.current?.arrive();
+    audio.current?.setThrottle(THROTTLES.indexOf("drift"));
+    firePulse("arrive");
+    addLog("Home bay in sight. Final approach.");
+    tellVesta("We are gliding into the home bay to dock. One short line as we come in.");
+
+    await pause(5_500);
+    if (!stillFlying()) return;
+    setSealed(true);
+    audio.current?.seal(1.6);
+    window.setTimeout(shake, 1_600);
+    await pause(2_400);
+    if (!stillFlying()) return;
+    addLog("Docked. Bay doors sealed.");
+    void session.disconnectSession();
+  };
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+
+  // Out of drive time: bring the ship home before the token cuts the feed.
+  useEffect(() => {
+    if (phase === "flying" && session.connected && remaining <= 25) {
+      addLog("Drive time nearly spent. Returning home.");
+      dockRef.current();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, phase, session.connected]);
 
   const submitCourse = (event: FormEvent) => {
     event.preventDefault();
@@ -1677,11 +1752,11 @@ function Cockpit({
 
         {flash > 0 && <div key={flash} className="sw-flash" aria-hidden />}
 
-        {(phase === "launching" || phase === "briefing" || shieldOpening) && (
-          <div className={`sw-shield ${shieldOpening ? "is-opening" : ""}`}>
+        {(phase === "launching" || phase === "briefing" || shieldOpening || sealed) && (
+          <div className={`sw-shield ${shieldOpening ? "is-opening" : ""} ${sealed ? "is-sealing" : ""}`}>
             <div className="sw-shield-door sw-shield-top" aria-hidden />
             <div className="sw-shield-door sw-shield-bottom" aria-hidden />
-            {(
+            {!sealed && (
               <div className={`sw-briefing ${shieldOpening ? "is-stowing" : ""}`}>
                 <span className="sw-label">Mission briefing</span>
                 <h2>{mission.title}</h2>
@@ -2123,8 +2198,8 @@ function Cockpit({
         {session.connected && (
           <button
             type="button"
-            disabled={phase === "launching"}
-            onClick={() => void session.disconnectSession()}
+            disabled={phase === "launching" || phase === "docking"}
+            onClick={() => dockRef.current()}
           >
             Dock
           </button>

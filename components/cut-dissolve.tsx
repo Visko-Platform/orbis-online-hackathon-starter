@@ -137,13 +137,16 @@ void main() {
   // 2. Outside the sphere: the tunnel, gravitationally lensed around it
   //    (space near the sphere is stretched outward and twisted), inside a
   //    dark shadow that frames the sphere instead of a glow.
-  float pull = R * R / max(r, R);
-  float lr = r + pull * 0.8 * lens;
-  float twist = pull / max(r, 0.02) * 0.3 * lens;
-  vec3 outside = tunnel(lr, u + twist, approach);
-  float shadow = smoothstep(R * 1.9, R * 1.02, r) * lens * u_hold;
-  outside *= 1.0 - 0.75 * shadow;
-  vec3 colour = mix(still, outside, hold);
+  vec3 colour = still;
+  if (r >= R) {
+    float pull = R * R / max(r, R);
+    float lr = r + pull * 0.8 * lens;
+    float twist = pull / max(r, 0.02) * 0.3 * lens;
+    vec3 outside = tunnel(lr, u + twist, approach);
+    float shadow = smoothstep(R * 1.9, R * 1.02, r) * lens * u_hold;
+    outside *= 1.0 - 0.75 * shadow;
+    colour = mix(still, outside, hold);
+  }
 
   // 3. The sphere itself: a mirrored lens. Its core shows the destination
   //    bent and inverted (with dispersion: R, G and B bend differently);
@@ -160,9 +163,13 @@ void main() {
       ? vec3(toAt(uvR).r, toAt(uvG).g, toAt(uvB).b)
       : vec3(fromAt(uvR).r, fromAt(uvG).g, fromAt(uvB).b) * vec3(0.7, 0.8, 0.95);
     // Mirror: the limb reflects the tunnel from behind us, flipped.
-    vec3 reflection = tunnel(mix(0.95, 0.22, k), 1.0 - u, approach);
     float fresnel = pow(k, 2.5);
-    vec3 inside = mix(through, reflection, (0.1 + 0.75 * fresnel) * lens);
+    float mirrorAmount = (0.1 + 0.75 * fresnel) * lens * (1.0 - smoothstep(0.0, 0.3, u_progress));
+    vec3 inside = through;
+    if (mirrorAmount > 0.004) {
+      vec3 reflection = tunnel(mix(0.95, 0.22, k), 1.0 - u, approach);
+      inside = mix(through, reflection, mirrorAmount);
+    }
     // Dark limb: glass edges absorb, giving the sphere its volume.
     inside *= 1.0 - 0.55 * pow(k, 7.0) * lens;
     // A small, soft specular kiss, tinted by the gas.
@@ -290,7 +297,9 @@ export function CutDissolve({ control }: { control: { current: CutDissolveContro
     };
 
     const resize = () => {
-      const ratio = Math.min(window.devicePixelRatio, 1.5);
+      // 1×: the effect is soft by nature, and the full-screen exit is the
+      // heaviest moment; retina density there just costs frame rate.
+      const ratio = 1;
       element.width = Math.max(1, Math.round(element.clientWidth * ratio));
       element.height = Math.max(1, Math.round(element.clientHeight * ratio));
       gl.viewport(0, 0, element.width, element.height);
