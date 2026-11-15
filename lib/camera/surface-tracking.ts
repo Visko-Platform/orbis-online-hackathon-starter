@@ -52,8 +52,8 @@ export function trackSurfaces(ink: Ink, getHeadwear?: () => Headwear | undefined
     },
     expire(time: number) {
       const { hat, garment } = needed();
-      const hideHat = poses.hat && (!hat || time - lastHat > 160);
-      const hideTorso = poses.garment && (!garment || time - lastTorso > 190);
+      const hideHat = poses.hat && (!hat || time - lastHat > 650);
+      const hideTorso = poses.garment && (!garment || time - lastTorso > 650);
       if (hideHat) {
         delete poses.hat;
         smoothHat = motionFilter(4, 1.2);

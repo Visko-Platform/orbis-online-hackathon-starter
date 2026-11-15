@@ -1,5 +1,5 @@
 import { fromAnchor, toAnchor } from "./anchor-transform";
-import { HEIGHT, WIDTH, type Ink, type PinchEvent, type Point, type Shoulder } from "./ink";
+import { HEIGHT, WIDTH, type Ink, type Point, type Shoulder, type StrokeEvent } from "./ink";
 import type { JointId } from "./joints";
 
 export type Bounds = { x: number; y: number; width: number; height: number };
@@ -18,7 +18,7 @@ export type SketchLayer = {
   error?: string;
 };
 
-export function sketchTarget(event: PinchEvent): Target {
+export function sketchTarget(event: StrokeEvent): Target {
   if (event.follow === "joint" && event.joint) return event.joint;
   return event.follow === "shoulders" || event.follow === "garment" ? "Shoulders" : "Nose bridge";
 }

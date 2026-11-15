@@ -8,7 +8,7 @@ import type { CameraMotionTracking } from "@/lib/camera/motion";
 import { AccessoryControls } from "./accessory-controls";
 import { bindPointer } from "./pointer";
 import { useWardrobe, type WardrobeControls } from "./use-wardrobe";
-import { CaptureReference } from "./capture-reference";
+import { CaptureReference, type CaptureCameraReference } from "./capture-reference";
 import { HeadReference } from "./head-reference";
 import { HeadScan } from "./head-scan";
 import { AccessoryPosition } from "./accessory-position";
@@ -18,6 +18,13 @@ import { JointPicker } from "./joint-picker";
 import { CameraIcon } from "./camera-icon";
 import styles from "./studio.module.css";
 
+export type CameraActions = {
+  start: () => void;
+  stop: () => void;
+  capture: () => void;
+  prepare: (sketchDirection: string) => ReturnType<CaptureCameraReference>;
+};
+
 type CameraProps = {
   accessoryCamera?: React.RefObject<HTMLVideoElement | null>;
   background?: File;
@@ -25,8 +32,7 @@ type CameraProps = {
   onCameraReference?: CameraReference;
   onCameraSource?: (source: HTMLCanvasElement | null) => void;
   onCameraStatus?: (status: string) => void;
-  actionsRef?: RefObject<{ start: () => void; stop: () => void; capture: () => void;
-    prepare: () => Promise<{ image: File; direction: string } | null> } | null>;
+  actionsRef?: RefObject<CameraActions | null>;
   designDirection?: string;
   onCameraStarting?: (starting: boolean) => void;
   referenceDisabled?: boolean;
@@ -69,7 +75,7 @@ function Camera({ sharedInk, wardrobe, onCameraReference, onCameraSource, onCame
   const [joint, setJoint] = useState(() => ink.current.joint);
   const [headPhotos, setHeadPhotos] = useState<HeadPhotos>({});
   const [cameraStatus, setCameraStatus] = useState("");
-  const captureAction = useRef<((notify?: boolean) => Promise<{ image: File; direction: string } | null>) | null>(null);
+  const captureAction = useRef<CaptureCameraReference>(null);
 
   useEffect(() => { onCameraStatus?.(cameraStatus); }, [cameraStatus, onCameraStatus]);
   useEffect(() => { onCameraStarting?.(starting); }, [starting, onCameraStarting]);
@@ -78,7 +84,7 @@ function Camera({ sharedInk, wardrobe, onCameraReference, onCameraSource, onCame
       start: () => { if (!running && !starting) void start(); },
       stop: () => { if (running || starting) stop(); },
       capture: () => { if (running && !referenceDisabled) captureAction.current?.(); },
-      prepare: () => running && !referenceDisabled ? captureAction.current?.(false) ?? Promise.resolve(null) : Promise.resolve(null),
+      prepare: (direction) => running ? captureAction.current?.(false, direction) ?? Promise.resolve(null) : Promise.resolve(null),
     };
   });
   useEffect(() => () => { if (actionsRef) actionsRef.current = null; }, [actionsRef]);

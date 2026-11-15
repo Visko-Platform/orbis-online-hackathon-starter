@@ -8,6 +8,9 @@ import type { CameraAccessory } from "@/lib/camera/accessory-overlay";
 import { prepareWardrobeReference } from "./wardrobe-reference";
 import { CameraIcon } from "./camera-icon";
 
+export type CaptureCameraReference = (notify?: boolean, sketchDirection?: string) =>
+  Promise<{ image: File; direction: string } | null>;
+
 function captureHat(ink: Ink) {
   if (!ink.hasHatDrawing) return;
   const tile = 224;
@@ -30,7 +33,7 @@ export function CaptureReference({ canvas, worn, ink, headPhotos, hasPieces, env
   background?: File;
   designDirection?: string;
   disabled?: boolean;
-  actionRef?: RefObject<((notify?: boolean) => Promise<{ image: File; direction: string } | null>) | null>;
+  actionRef?: RefObject<CaptureCameraReference | null>;
   hideButton?: boolean;
   onCapture: (image: File, direction: string) => void;
   onError: (message: string) => void;
@@ -44,7 +47,7 @@ export function CaptureReference({ canvas, worn, ink, headPhotos, hasPieces, env
     if (active.current) onBusy?.(false);
   }, [onBusy]);
 
-  async function capture(notify = true) {
+  async function capture(notify = true, sketchDirection = designDirection) {
     if (!canvas.current || active.current) return null;
     const controller = new AbortController();
     active.current = controller;
@@ -56,7 +59,9 @@ export function CaptureReference({ canvas, worn, ink, headPhotos, hasPieces, env
       const [frame, hat] = await Promise.all([
         canvasBlob(canvas.current, "image/jpeg"), captureHat(ink),
       ]);
-      const result = await prepareWardrobeReference(frame, pieces, controller.signal, { headPhotos, hat, environment, background, designDirection });
+      const result = await prepareWardrobeReference(frame, pieces, controller.signal, {
+        headPhotos, hat, environment, background, designDirection: sketchDirection,
+      });
       if (!controller.signal.aborted) {
         if (notify) onCapture(result.image, result.direction);
         return result;
@@ -73,7 +78,10 @@ export function CaptureReference({ canvas, worn, ink, headPhotos, hasPieces, env
     return null;
   }
 
-  useEffect(() => { if (actionRef) actionRef.current = (notify) => disabled ? Promise.resolve(null) : capture(notify); });
+  useEffect(() => {
+    if (actionRef) actionRef.current = (notify, direction) =>
+      disabled && notify !== false ? Promise.resolve(null) : capture(notify, direction);
+  });
   useEffect(() => () => { if (actionRef) actionRef.current = null; }, [actionRef]);
 
   const enhanced = !!background || hasPieces || ink.hasHatDrawing || Object.keys(headPhotos).length > 0;

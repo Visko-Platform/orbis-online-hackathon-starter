@@ -54,14 +54,21 @@ export function trackUpperBody() {
   return {
     update(points: NormalizedLandmark[] | undefined, map: (point: Point) => Point, time: number) {
       const [first, second, firstHip, secondHip] = points ?? [];
-      if (!first || !second || Math.min(first.visibility, second.visibility) < 0.5) return;
+      if (!first || !second || Math.min(first.visibility, second.visibility) < 0.5) return false;
       const a = map(first), b = map(second);
       const reversed = a.x > b.x;
       const [l, r] = reversed ? [b, a] : [a, b];
-      if (Math.hypot(l.x - r.x, l.y - r.y) < 32) return;
+      const span = Math.hypot(l.x - r.x, l.y - r.y);
+      if (span < 32) return false;
+      if (current && time - lastSeen < 300) {
+        const previousSpan = width(current.shoulders);
+        if (Math.abs(span - previousSpan) > previousSpan * 0.45 ||
+          Math.hypot(midpoint([l, r]).x - midpoint(current.shoulders).x,
+            midpoint([l, r]).y - midpoint(current.shoulders).y) > previousSpan * 0.55) return false;
+      }
       const [lx, ly, rx, ry] = smooth([l.x, l.y, r.x, r.y], time);
       const shoulders: Edge = [{ x: lx, y: ly }, { x: rx, y: ry }];
-      let hipEdge = time - lastHips < 160 ? current?.hips : undefined;
+      let hipEdge = time - lastHips < 650 ? current?.hips : undefined;
       if (firstHip && secondHip && Math.min(firstHip.visibility, secondHip.visibility) >= 0.5) {
         const h1 = map(reversed ? secondHip : firstHip), h2 = map(reversed ? firstHip : secondHip);
         if (midpoint([h1, h2]).y - midpoint(shoulders).y >= width(shoulders) * 0.35) {
@@ -72,9 +79,10 @@ export function trackUpperBody() {
       }
       current = { shoulders, hips: hipEdge };
       lastSeen = time;
+      return true;
     },
     at(time: number) {
-      return time - lastSeen <= 160 ? current : undefined;
+      return time - lastSeen <= 650 ? current : undefined;
     },
     clear() {
       current = undefined;

@@ -13,6 +13,7 @@ type SetupGuideProps = {
   generateSketchImages: boolean;
   microphone: "idle" | "requesting" | "ready";
   microphoneError: string;
+  sketchPending: boolean;
   imageReady: boolean;
   preparingImage: boolean;
   generationStatus: string;
@@ -35,7 +36,7 @@ type SetupGuideProps = {
 };
 
 export function SetupGuide({ cameraReady, cameraStarting, cameraError, driveOn, trackingReady, sketchOn,
-  generateSketchImages, microphone, microphoneError, imageReady, preparingImage, generationStatus,
+  generateSketchImages, microphone, microphoneError, sketchPending, imageReady, preparingImage, generationStatus,
   canStartGeneration, generationBusy, running, connected, stopping, updating, startCamera, stopCamera, captureCamera, startGeneration,
   stopLive, updateRender,
   toggleDrive, toggleSketch, toggleGenerateSketchImages, enableMicrophone }: SetupGuideProps) {
@@ -47,7 +48,7 @@ export function SetupGuide({ cameraReady, cameraStarting, cameraError, driveOn, 
     <button type="button" aria-pressed={sketchOn} onClick={toggleSketch}>Live sketch</button>
     <button type="button" aria-pressed={generateSketchImages} disabled={!sketchOn}
       onClick={toggleGenerateSketchImages}>Generate sketch images</button>
-    <button type="button" disabled={!cameraReady || generationBusy || updating || stopping}
+    <button type="button" disabled={!cameraReady || sketchPending || generationBusy || updating || stopping}
       onClick={updateRender}>{updating ? "Updating…" : "Update render"}</button>
     <button type="button" className="live-stop" disabled={stopping}
       onClick={stopLive}>{stopping ? "Stopping…" : "Stop and disconnect"}</button>
@@ -55,12 +56,12 @@ export function SetupGuide({ cameraReady, cameraStarting, cameraError, driveOn, 
       onClick={enableMicrophone}>Enable microphone</button>}
   </section>;
 
-  const controlsReady = driveOn && sketchOn;
-  const current = imageReady || canStartGeneration ? 5 : !cameraReady ? 1 : !controlsReady ? 2 : microphone !== "ready" && !microphoneSkipped ? 3 : 4;
+  const offerMicrophone = cameraReady && sketchOn && microphone !== "ready" && !microphoneSkipped;
+  const current = offerMicrophone ? 3 : imageReady || canStartGeneration || sketchPending ? 5 : cameraReady ? 4 : 1;
   const steps = [
     { label: "Start camera", done: cameraReady, detail: cameraError || (cameraReady ? "Camera ready" : cameraStarting ? "Starting camera…" : "Choose your camera source below") },
-    { label: "Live controls", done: controlsReady, detail: `Drive Orbis ${driveOn ? trackingReady ? "· tracking ready" : "· waiting for motion" : "· off"}  ·  Live sketch ${sketchOn ? "on" : "off"}` },
-    { label: "Microphone", done: microphone === "ready", detail: microphoneError || (microphone === "ready" ? "Microphone ready" : microphone === "requesting" ? "Allow access in your browser" : microphoneSkipped ? "Skipped · enable anytime" : "Optional for voice sketches") },
+    { label: "Live controls", done: sketchOn, detail: `Drive Orbis ${driveOn ? trackingReady ? "· tracking ready" : "· waiting for motion" : "· off"}  ·  Live sketch ${sketchOn ? "on" : "off"}` },
+    { label: "Microphone", done: microphone === "ready", detail: microphoneError || (microphone === "ready" ? "Speak while drawing" : microphone === "requesting" ? "Allow access in your browser" : microphoneSkipped ? "Skipped · enable anytime" : "Caption sketches before generation") },
     { label: "Capture camera", done: imageReady, detail: preparingImage ? "Preparing image…" : imageReady ? "Starting image ready" : "Take a still for Orbis" },
     { label: "Start generation", done: false, detail: generationStatus || (imageReady ? "Review your image and direction below" : canStartGeneration ? "Start from your prompt" : "Available after capture") },
   ];
@@ -87,7 +88,7 @@ export function SetupGuide({ cameraReady, cameraStarting, cameraError, driveOn, 
           onClick={enableMicrophone}>{microphone === "requesting" ? "Enabling…" : "Enable microphone"}</button>}
         {index === 2 && microphone === "idle" && !microphoneSkipped && <button type="button" className="live-setup-skip"
           onClick={() => setMicrophoneSkipped(true)}>Skip for now</button>}
-        {index === 3 && <button type="button" disabled={!cameraReady || preparingImage || generationBusy}
+        {index === 3 && <button type="button" disabled={!cameraReady || sketchPending || preparingImage || generationBusy}
           aria-label={preparingImage ? "Preparing camera image" : imageReady ? "Capture again" : "Capture camera"}
           onClick={captureCamera}>{preparingImage ? "…" : <CameraIcon />}</button>}
         {index === 4 && <button type="button" disabled={!canStartGeneration || generationBusy}

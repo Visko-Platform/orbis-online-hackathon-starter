@@ -3,6 +3,7 @@ const vision = import("/camera/wasm/vision_bundle.mjs").then(async (sdk) => ({
   sdk,
   files: await sdk.FilesetResolver.forVisionTasks(`${self.location.origin}/camera/wasm`),
 }));
+const handOnly = new URL(self.location.href).searchParams.get("stream") === "hands";
 const models = new Map();
 let loading = Promise.resolve();
 
@@ -42,13 +43,15 @@ function load(kind) {
   }).catch(() => self.postMessage({ type: "error", kind }));
 }
 
-load("hand");
-self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody, motion, gesture } }) => {
-  if (face) load("face");
-  if (shoulders || hat || garment || fullBody || motion) load("pose");
-  const result = { type: "frame", time, fullBody, motion };
+if (handOnly) load("hand");
+self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody, motion } }) => {
+  if (!handOnly) {
+    if (face) load("face");
+    if (shoulders || hat || garment || fullBody || motion) load("pose");
+  }
+  const result = handOnly ? { type: "hands", time, hands: [] } : { type: "frame", time, fullBody, motion };
   try {
-    for (const kind of ["face", "hand", "pose"]) {
+    for (const kind of handOnly ? ["hand"] : ["face", "pose"]) {
       const model = models.get(kind);
       // Keep the pose model warm at profile angles so it can pick up the rear view.
       const faceForward = result.face?.matrix[10] ?? 0;
@@ -60,7 +63,7 @@ self.onmessage = ({ data: { image, time, face, shoulders, hat, garment, fullBody
           result.hands = sample.landmarks.map((points, index) => ({
             side: sample.handedness[index]?.[0]?.categoryName,
             wrist: points[0], thumb: points[4], tip: points[8], knuckle: points[9],
-            ...((fullBody || gesture) && { points, confidence: sample.handedness[index]?.[0]?.score }),
+            points, confidence: sample.handedness[index]?.[0]?.score,
           }));
         }
         if (kind === "pose" && sample.landmarks[0]) {

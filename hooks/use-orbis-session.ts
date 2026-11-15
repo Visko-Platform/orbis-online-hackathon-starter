@@ -214,14 +214,14 @@ export function useOrbisSession(
     await connect();
   };
 
-  const startScene = async (startImage: File | null, text: string, poseDirection?: string) => {
+  const startScene = async (startImage: File | null, text: string, openingDirection?: string) => {
     const scene = text.trim();
     const accepted = await runAction(async () => {
       if (!scene) throw new Error("Enter a starting prompt.");
       timing.begin(!connected);
       try {
         await ensureConnected();
-        await startGeneration(startImage, [scene, poseDirection].filter(Boolean).join("\n\n"));
+        await startGeneration(startImage, [scene, openingDirection].filter(Boolean).join("\n\n"));
       } catch (error) {
         stopTiming();
         throw error;

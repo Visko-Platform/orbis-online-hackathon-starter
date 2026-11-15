@@ -3,7 +3,9 @@ import { pcmWave } from "./pinch-pcm";
 import { responseError, transcribeAudio } from "./requests";
 
 const microphone = { audio: { echoCancellation: true, noiseSuppression: true } };
-const clipLimit = 750;
+// The worklet sends 20 ms of 16 kHz PCM per chunk.
+const minimumChunks = 250;
+const maxCaptureMs = 15_000;
 const chunksPerPacket = 5;
 
 export function preparePinchAudio() {
@@ -11,7 +13,7 @@ export function preparePinchAudio() {
   const context = new AudioContext();
   const lifetime = new AbortController();
   const ready = Promise.all([
-    context.resume(), context.audioWorklet.addModule("/looks-mic.js"), import("@google/genai"),
+    context.resume(), context.audioWorklet.addModule("/looks-mic.js"),
   ]);
   void ready.catch(() => {});
   const permission = navigator.mediaDevices.getUserMedia(microphone).then((stream) => {
@@ -19,12 +21,12 @@ export function preparePinchAudio() {
   });
 
   function connect(message: (message: LiveServerMessage) => void, failed: () => void, signal: AbortSignal) {
-    return Promise.all([ready, fetch("/api/looks/live-token?mode=transcribe", {
-      method: "POST", signal,
+    return Promise.all([import("@google/genai"), fetch("/api/looks/live-token?mode=transcribe", {
+      method: "POST", signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
     }).then(async (response) => {
       if (!response.ok) throw await responseError(response);
       return response.json() as Promise<{ token: string; model: string }>;
-    })]).then(async ([[, , { GoogleGenAI, Modality }], auth]) => {
+    })]).then(async ([{ GoogleGenAI, Modality }, auth]) => {
       signal.throwIfAborted();
       const ai = new GoogleGenAI({ apiKey: auth.token, apiVersion: "v1alpha" });
       const session = await ai.live.connect({
@@ -64,6 +66,8 @@ export function preparePinchAudio() {
       let sink: GainNode | undefined;
       let worklet: AudioWorkletNode | undefined;
       let released = false;
+      let releaseRequested = false;
+      let onStopped: (() => void) | undefined;
       let liveFailed = false;
       let fallbackStarted = false;
       let sent = 0;
@@ -79,6 +83,9 @@ export function preparePinchAudio() {
         if (worklet) { worklet.port.onmessage = null; worklet.disconnect(); }
         sink?.disconnect();
         mic = source = worklet = sink = undefined;
+        const notify = onStopped;
+        onStopped = undefined;
+        notify?.();
       }
 
       function settle(text?: string, error?: string) {
@@ -101,17 +108,19 @@ export function preparePinchAudio() {
 
       async function finalize() {
         if (signal.aborted || fallbackStarted) return;
-        if (final) { settle(final); return; }
         if (!chunks.length) {
           settle("", "No microphone audio was captured. Check the selected input and try again.");
           return;
         }
         fallbackStarted = true;
+        const liveText = () => [final, interim].filter(Boolean).join(" ").trim();
         try {
-          const text = await transcribeAudio(pcmWave(chunks), AbortSignal.any([signal, AbortSignal.timeout(20_000)]));
-          settle(text || interim, text || interim ? undefined : "No speech detected. Speak while holding the pinch.");
-        } catch {
-          settle(interim, interim ? undefined : "Transcription failed. Try another pinch.");
+          const text = await transcribeAudio(pcmWave(chunks), signal);
+          const transcript = text || liveText();
+          settle(transcript, transcript ? undefined : "No speech detected. Speak while Listening appears.");
+        } catch (error) {
+          const transcript = liveText();
+          settle(transcript, transcript ? undefined : error instanceof Error ? error.message : "Transcription failed. Try drawing again.");
         }
       }
 
@@ -124,7 +133,8 @@ export function preparePinchAudio() {
         }
         interim = serverContent.interimInputTranscription?.text ?? interim;
         caption([final, interim].filter(Boolean).join(" "));
-        if (released && result) settle(final);
+        if (released && sent === chunks.length && !liveFailed && !fallbackStarted &&
+            serverContent.inputTranscription?.finished && final) settle(final);
       }
 
       function flush(force = false) {
@@ -151,7 +161,7 @@ export function preparePinchAudio() {
         if (released) session.sendRealtimeInput({ activityEnd: {} });
       }).catch(failed);
 
-      void Promise.all([ready, permission.then(async () => {
+      void Promise.all([ready, context.resume(), permission.then(async () => {
         if (released || signal.aborted) return;
         const stream = await navigator.mediaDevices.getUserMedia(microphone);
         if (released || signal.aborted) stream.getTracks().forEach((track) => track.stop());
@@ -164,10 +174,15 @@ export function preparePinchAudio() {
         sink.gain.value = 0;
         worklet.connect(sink).connect(context.destination);
         worklet.port.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
-          if (released || signal.aborted || chunks.length >= clipLimit) return;
-          if (!chunks.length) status("Listening…");
+          if (released || signal.aborted) return;
+          if (!chunks.length) {
+            clearTimeout(timer);
+            timer = setTimeout(finishRecording, maxCaptureMs);
+            status("Listening…");
+          }
           chunks.push(data);
           try { flush(); } catch { failed(); }
+          if (releaseRequested && chunks.length >= minimumChunks) finishRecording();
         };
         source.connect(worklet);
       }).catch((error: unknown) => {
@@ -176,7 +191,7 @@ export function preparePinchAudio() {
           : "Can’t start the microphone. Check your selected input.");
       });
 
-      function end() {
+      function finishRecording() {
         if (released || signal.aborted) return;
         released = true;
         stopMic();
@@ -190,8 +205,17 @@ export function preparePinchAudio() {
         timer = setTimeout(() => { void finalize(); }, 3000);
       }
 
-      timer = setTimeout(end, 15_000);
-      return { end, cancel };
+      timer = setTimeout(finishRecording, maxCaptureMs);
+      return {
+        finish: finishRecording,
+        end(notify: () => void) {
+          if (released || signal.aborted) { notify(); return; }
+          onStopped = notify;
+          releaseRequested = true;
+          if (chunks.length >= minimumChunks) finishRecording();
+        },
+        cancel,
+      };
     },
   };
 }

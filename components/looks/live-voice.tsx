@@ -18,7 +18,7 @@ export function LiveVoice({ question, disabled, busy, onTranscript, onError }: {
   useEffect(() => () => session.current?.close(), []);
   useEffect(() => {
     if (!question) readQuestion.current = "";
-    if (question && session.current && !status && readQuestion.current !== question) {
+    if (question && session.current && !session.current.closed && !status && readQuestion.current !== question) {
       readQuestion.current = question;
       void session.current.speak(question);
     }
@@ -35,7 +35,7 @@ export function LiveVoice({ question, disabled, busy, onTranscript, onError }: {
     if (status === "Listening…") { session.current?.stop(); return; }
     if (status || disabled || busy) return;
     try {
-      session.current ??= openLiveAudio({ status: setStatus,
+      if (!session.current || session.current.closed) session.current = openLiveAudio({ status: setStatus,
         transcript: (text) => callbacks.current.onTranscript(text),
         error: (error) => { session.current = null; setStatus(""); callbacks.current.onError(error); } });
       if (question && readQuestion.current !== question) {

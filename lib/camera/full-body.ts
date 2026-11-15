@@ -5,7 +5,7 @@ import { motionFilter } from "./tracking-filter";
 import type { GarmentFit, UpperBody } from "./upper-body";
 
 const landmarkPairs = [[11, 12], [23, 24], [25, 26], [27, 28]] as const;
-const holdMs = 160;
+const holdMs = 650;
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
 type FullBody = { shoulder: Shoulder; hips: Point; knees: Point; ankles: Point };
@@ -23,19 +23,38 @@ export function trackFullBody() {
     update(pose: NormalizedLandmark[] | undefined, map: (point: Point) => Point, time: number) {
       if (!pose) return;
       const pairs: [Point, Point][] = [];
-      for (const [left, right] of landmarkPairs) {
+      for (const [left, right] of landmarkPairs.slice(0, 2)) {
         const a = pose[left], b = pose[right];
         if (!visible(a) || !visible(b)) return;
         pairs.push([map(a), map(b)]);
       }
-      const [shoulders, hipPair, kneePair, anklePair] = pairs;
+      const [shoulders, hipPair] = pairs;
       const [left, right] = shoulders[0].x <= shoulders[1].x ? shoulders : [shoulders[1], shoulders[0]];
-      const centers = [midpoint(left, right), midpoint(...hipPair), midpoint(...kneePair), midpoint(...anklePair)];
-      if (right.x - left.x < 12 || centers.some((center, index) => index > 0 && center.y <= centers[index - 1].y + 4)) return;
+      const shoulderCenter = midpoint(left, right);
+      const hipCenter = midpoint(...hipPair);
+      const span = Math.hypot(right.x - left.x, right.y - left.y);
+      if (span < 12 || hipCenter.y <= shoulderCenter.y + span * 0.35) return;
+      if (current && time - lastSeen < 300 && (Math.abs(span - current.shoulder.width) > current.shoulder.width * 0.45 ||
+        Math.hypot(shoulderCenter.x - current.shoulder.center.x,
+          shoulderCenter.y - current.shoulder.center.y) > current.shoulder.width * 0.55)) return;
+
+      const lower = landmarkPairs.slice(2).map(([left, right]) => {
+        const a = pose[left], b = pose[right];
+        return visible(a) && visible(b) ? midpoint(map(a), map(b)) : undefined;
+      });
+      const shift = current ? { x: hipCenter.x - current.hips.x, y: hipCenter.y - current.hips.y } : undefined;
+      const torso = Math.max(span, hipCenter.y - shoulderCenter.y);
+      const knees = lower[0] ?? (current && shift
+        ? { x: current.knees.x + shift.x, y: current.knees.y + shift.y }
+        : { x: hipCenter.x, y: hipCenter.y + torso * 0.85 });
+      const ankles = lower[1] ?? (current && shift
+        ? { x: current.ankles.x + shift.x, y: current.ankles.y + shift.y }
+        : { x: hipCenter.x, y: hipCenter.y + torso * 1.75 });
+      if (knees.y <= hipCenter.y + 4 || ankles.y <= knees.y + 4) return;
 
       const [x, y, dx, dy, hx, hy, kx, ky, ax, ay] = smooth([
-        centers[0].x, centers[0].y, right.x - left.x, right.y - left.y,
-        centers[1].x, centers[1].y, centers[2].x, centers[2].y, centers[3].x, centers[3].y,
+        shoulderCenter.x, shoulderCenter.y, right.x - left.x, right.y - left.y,
+        hipCenter.x, hipCenter.y, knees.x, knees.y, ankles.x, ankles.y,
       ], time);
       current = {
         shoulder: { center: { x, y }, width: Math.hypot(dx, dy), angle: Math.atan2(dy, dx) },

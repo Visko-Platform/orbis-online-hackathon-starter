@@ -11,8 +11,9 @@ type MotionKey = keyof CameraMotion;
 type MotionValue = NonNullable<CameraMotion[MotionKey]>;
 type Sample = { candidate: MotionValue; since: number; seen: number; stable?: MotionValue };
 
-export function useCameraFollow({ openingScene, runId, canSend, send }: {
+export function useCameraFollow({ openingScene, openingSketch = "", runId, canSend, send }: {
   openingScene?: string;
+  openingSketch?: string;
   runId?: number;
   canSend: boolean;
   send: (payload: ReturnType<typeof cameraSteeringPayload>) => Promise<void>;
@@ -108,14 +109,14 @@ export function useCameraFollow({ openingScene, runId, canSend, send }: {
 
   useEffect(() => {
     lastMotion.current = "";
-    lastSketch.current = "";
-    sketch.current = "";
+    lastSketch.current = openingSketch;
+    sketch.current = openingSketch;
     currentScene.current = "";
     nextUpdate.current = 0;
     retryAt.current = 0;
     setError("");
     return () => { runVersion.current++; };
-  }, [openingScene, runId]);
+  }, [openingScene, openingSketch, runId]);
 
   function changeFollowing(value: boolean) {
     enabled.current = value;

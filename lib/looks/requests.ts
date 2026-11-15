@@ -38,9 +38,20 @@ export async function groundMotion(image: Blob, prompt: string, environment?: Lo
 }
 
 export async function transcribeAudio(audio: Blob, signal?: AbortSignal): Promise<string> {
+  if (!audio.size) throw new Error("No microphone audio was captured. Try again.");
+  const timeout = AbortSignal.timeout(24_000);
   const body = new FormData();
   body.append("audio", audio);
-  const response = await fetch("/api/looks/transcribe", { method: "POST", body, signal });
-  if (!response.ok) throw await responseError(response);
-  return (await response.json()).transcript;
+  try {
+    const response = await fetch("/api/looks/transcribe", {
+      method: "POST", body, signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (!response.ok) throw await responseError(response);
+    const result = await response.json().catch(() => null);
+    if (typeof result?.transcript !== "string") throw new Error("Transcription returned an invalid response. Try again.");
+    return result.transcript.trim();
+  } catch (error) {
+    if (timeout.aborted && !signal?.aborted) throw new Error("Transcription took too long. Try again.");
+    throw error;
+  }
 }

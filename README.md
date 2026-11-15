@@ -123,7 +123,7 @@ behavior, use the public Reactor documentation:
 
 Run `npm run dev` and open [Camera Studio](http://127.0.0.1:3000/camera) in Chrome on the Mac. Start the camera and grant camera access. To switch cameras, stop capture, choose a source, and start again. An iPhone configured for Continuity Camera can appear as one of the Mac’s sources.
 
-Draw with the pointer or briefly pinch your thumb and index finger in view of the camera. Release to finish the stroke. Drawing follows the head or shoulders by default. Open **Advanced → Follow** to choose a specific anchor. **Head** attaches new ink to facial features, including the irises, or to a 3D head plane outside the face mesh. Tracking runs locally in the browser.
+Draw with the pointer or bring your index, middle, ring, and pinky fingertips together against your thumb. Move your pinched hand to draw. Separate your fingers to finish the stroke. Drawing follows the head or shoulders by default. Open **Advanced → Follow** to choose a specific anchor. **Head** attaches new ink to facial features, including the irises, or to a 3D head plane outside the face mesh. Tracking runs locally in the browser.
 
 Choose **Follow → 3D hat** to draw on the crown or brim, or **3D garment** to draw on a torso surface. Turn to expose another side and keep drawing. The pointer and both hands can draw independently. The browser renders the surfaces with WebGL 2 and runs the bundled Google MediaPipe models locally. Back-of-head tracking uses an estimate from body landmarks when a face pose is unavailable. Ink stays on the surface after tracking reacquires it.
 
@@ -176,32 +176,36 @@ steering chat. The setup guide shows five steps: start the camera, check the liv
 enable the microphone if you want voice sketches, capture a starting image, then review it
 and select **Start generation**. Drive Orbis and Live sketch start enabled on each visit.
 Microphone setup can be skipped, and a prepared image from Looks or an uploaded image can
-replace camera capture. Draw on the feed with the pointer or
-pinch your thumb and index finger. **Follow** and **Head scan** are under
-**Advanced** in the Camera Studio controls. Hold a fist in the live camera to
-speak; release it to transcribe. During a run, fist speech steers the Orbis
-scene, including the setting and shot framing. Pinch speech describes a Live
-sketch. The separate blank canvas is ready as soon as the page opens.
-With **Drive Orbis** enabled, wait for **Motion tracking ready**. Enter a
-starting prompt to describe your character and setting. When motion tracking
-is ready, you can leave the prompt blank to use the default scene. You can
+replace camera capture. Draw on the feed with the pointer or a four-finger pinch.
+**Follow** and **Head scan** are under **Advanced** in the Camera Studio controls.
+Hold a fist in view of the camera to speak. Release it to transcribe.
+During a run, fist speech steers the Orbis scene, including the setting and shot framing.
+Speech while drawing describes a Live sketch. The separate blank canvas is ready as soon as the page opens.
+For pose tracking, turn on **Drive Orbis** and wait for **Motion tracking ready**.
+Enter a starting prompt to describe your character and setting, or leave it blank
+to use the default scene when the camera is ready. You can
 capture the camera, prepare a sketch as a 16:9 starting image, or bring in a
-prepared look from Looks. Select **Start scene** to connect and start rendering.
+prepared look from Looks. Select **Start generation** to connect and start rendering.
 
 Keep your face, shoulders, and hands in frame. **Drive Orbis** reads body and
 face landmarks locally and sends the latest stable pose to Orbis as a prompt.
 Raise an arm, turn your head, or move across the frame. Orbis applies changes
 at roughly 1.8-second chunk boundaries, so motion is approximate.
 
-With **Live sketch** on, select **Enable microphone**, and allow microphone
-access. Once the button reads **Microphone ready**, pinch to draw and speak
-when **Listening…** appears. Release to steer Orbis with the
-sketch and description. If live captions are delayed, the recording is
-transcribed after release. You can still draw with the pointer and use
-**Speak** for a separate spoken edit.
+Before starting generation or during a run, keep **Live sketch** on and select **Enable microphone**.
+Draw on the live camera preview with the pointer or a four-finger pinch. For example,
+draw a circle where you want bubbles and say “add floating soap bubbles here” when
+**Listening…** appears. Release to finish the stroke. The microphone captures at least
+five seconds if you release early, unless you start another stroke. Each transcript
+stays linked to its stroke.
+**Start generation** waits for the current caption and includes the sketch’s shape,
+placement, and description in the opening scene. During a run, the same sketches
+steer the current render.
+Draw without the microphone for a sketch-only edit, or use **Speak** or a fist gesture
+for a separate scene edit.
 
 Turn on **Generate sketch images** to have Gemini make a cutout from each described
-pinch sketch. Select **Use image** to replace the visible stroke with an image
+sketch. Select **Use image** to replace the visible stroke with an image
 that follows the subject in the camera, Orbis render, and OBS. **Use sketch**
 restores the stroke. When Follow is Off, images follow the face. Undo or clear
 the source stroke to remove its image.

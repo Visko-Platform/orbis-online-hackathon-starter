@@ -16,7 +16,6 @@ export async function prepareWardrobeReference(frame: Blob, pieces: CameraAccess
   if (pieces.some(({ placement }) => placement === "fullBody")) body.append("replaceClothing", "true");
 
   const directions = pieces.map(({ placement, prompt }) => describeAccessory(placement, prompt));
-  if (designDirection) directions.push(designDirection);
   if (hat) {
     body.append("hat", hat, "drawn-hat.jpg");
     directions.push("Keep the hat's crown, brim, and painted markings in the same physical positions as the person turns.");
@@ -26,7 +25,7 @@ export async function prepareWardrobeReference(frame: Blob, pieces: CameraAccess
     if (photo) body.append(id, photo, `${id}.jpg`);
   }
   const direction = directions.join(" ");
-  body.append("direction", direction);
+  body.append("direction", [direction, designDirection].filter(Boolean).join(" "));
   await Promise.all(pieces.map(async ({ sheet }, index) => {
     const bitmap = await createImageBitmap(sheet, { resizeWidth: 768, resizeQuality: "high" });
     const canvas = document.createElement("canvas");

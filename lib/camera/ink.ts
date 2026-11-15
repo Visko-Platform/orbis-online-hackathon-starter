@@ -10,7 +10,10 @@ import { fromAnchor, toAnchor } from "./anchor-transform";
 export type Point = { x: number; y: number };
 export type Shoulder = { center: Point; angle: number; width: number };
 export type Follow = "off" | "headAndShoulders" | "shoulders" | "face" | "joint" | SurfaceMode;
-type FlatStroke = { points: (FacePoint | null)[]; follow: Exclude<Follow, SurfaceMode>; color: string; joint?: JointId };
+type FlatStroke = {
+  points: (FacePoint | null)[]; follow: Exclude<Follow, SurfaceMode>; color: string; joint?: JointId;
+  lastPointAt?: number;
+};
 type Stroke = FlatStroke | SurfaceStroke;
 const isSurface = (stroke: Stroke): stroke is SurfaceStroke => stroke.follow === "hat" || stroke.follow === "garment";
 export type InkAction = "start" | "move" | "end" | "cancel" | "undo";
@@ -37,13 +40,13 @@ export function paint(ctx: CanvasRenderingContext2D, points: Point[], color = "#
   ctx.stroke();
 }
 
-export type PinchEvent = { id: number; phase: "start" | "end" | "cancel"; follow: Follow; joint?: JointId };
+export type StrokeEvent = { id: number; phase: "start" | "end" | "cancel"; follow: Follow; joint?: JointId };
 
 export class Ink {
   private strokeIds = new WeakMap<Stroke, number>();
   private nextStrokeId = 0;
   private hidden = new Set<number>();
-  onPinch?: (event: PinchEvent) => void;
+  onStroke?: (event: StrokeEvent) => void;
   drawOverlays?: (context: CanvasRenderingContext2D) => void;
   overlayShoulders?: () => boolean;
   overlayJoints?: () => JointId[];
@@ -217,7 +220,8 @@ export class Ink {
         : this.follow;
       const surfaceMode = follow === "hat" || follow === "garment";
       if (follow === "joint" && !this.canStart) return;
-      if (!this.canStart && !surfaceMode && !source.startsWith("hand:")) return;
+      const canDrawUntracked = source.startsWith("hand:") || !!this.onStroke && this.follow === "headAndShoulders";
+      if (!this.canStart && !surfaceMode && !canDrawUntracked) return;
       this.active.set(source, follow === "joint"
         ? { points: [], follow, color: this.color, joint: this.joint }
         : { points: [], follow: this.canStart || surfaceMode ? follow : "off", color: this.color });
@@ -239,14 +243,25 @@ export class Ink {
         if (stroke.follow === "face") local = this.face?.attach(pixel);
         const anchor = stroke.joint && this.jointAnchor(stroke.joint);
         if (anchor) local = toAnchor(pixel, anchor);
-        if (local) stroke.points.push(local);
-        else if (stroke.points.at(-1)) stroke.points.push(null);
+        const handAnchor = source.startsWith("hand:") && (stroke.follow === "face" || stroke.follow === "shoulders");
+        if (local) {
+          if (handAnchor) {
+            const now = performance.now();
+            if (stroke.lastPointAt !== undefined && now - stroke.lastPointAt >= 800 && stroke.points.at(-1)) {
+              stroke.points.push(null);
+            }
+            stroke.lastPointAt = now;
+          }
+          stroke.points.push(local);
+        } else if (!handAnchor && stroke.points.at(-1)) {
+          stroke.points.push(null);
+        }
       }
     }
-    if (source.startsWith("hand:") && stroke.points.length && !this.strokeIds.has(stroke)) {
+    if (this.onStroke && stroke.points.length && !this.strokeIds.has(stroke)) {
       const id = ++this.nextStrokeId;
       this.strokeIds.set(stroke, id);
-      this.onPinch?.({ id, phase: "start", follow: stroke.follow, joint: !isSurface(stroke) ? stroke.joint : undefined });
+      this.onStroke({ id, phase: "start", follow: stroke.follow, joint: !isSurface(stroke) ? stroke.joint : undefined });
     }
     if (action === "end" || action === "cancel") {
       this.active.delete(source);
@@ -258,7 +273,7 @@ export class Ink {
         this.finished.push(stroke);
       }
       const id = this.strokeIds.get(stroke);
-      if (id !== undefined) this.onPinch?.({
+      if (id !== undefined) this.onStroke?.({
         id, phase: action, follow: stroke.follow, joint: !isSurface(stroke) ? stroke.joint : undefined,
       });
       if (action === "end" && stroke.points.length) this.drawingChanged();

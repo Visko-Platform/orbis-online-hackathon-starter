@@ -1,5 +1,6 @@
 import type { LiveServerMessage, Session } from "@google/genai";
-import { responseError } from "./requests";
+import { pcmWave } from "./pinch-pcm";
+import { responseError, transcribeAudio } from "./requests";
 
 export function openLiveAudio(report: { transcript: (text: string) => void; status: (text: string) => void; error: (text: string) => void }) {
   const context = new AudioContext();
@@ -9,9 +10,14 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
   let mic: MediaStream | undefined;
   let worklet: AudioWorkletNode | undefined;
   let source: MediaStreamAudioSourceNode | undefined;
+  let sink: GainNode | undefined;
   let mode: "idle" | "listening" | "processing" | "speaking" = "idle";
   let transcript = "";
-  let transcriptDelivered = false;
+  let finalReply = "";
+  let liveFailed = false;
+  let fallingBack = false;
+  let sent = 0;
+  const chunks: ArrayBuffer[] = [];
   let queuedUntil = 0;
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let turnDone = false;
@@ -23,9 +29,19 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
     source = undefined;
     if (worklet) { worklet.port.onmessage = null; worklet.disconnect(); }
     worklet = undefined;
+    sink?.disconnect();
+    sink = undefined;
   }
 
-  function disconnected() { fail("Gemini Live disconnected. You can continue by typing."); }
+  function disconnected() {
+    if (abort.signal.aborted) return;
+    liveFailed = true;
+    if (mode === "processing") {
+      if (finalReply) complete(finalReply);
+      else void fallback();
+    }
+    if (mode === "speaking") fail("Gemini Live disconnected. You can read the question in the composer.");
+  }
   window.addEventListener("offline", disconnected);
 
   function close() {
@@ -34,6 +50,7 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
     window.removeEventListener("offline", disconnected);
     clearTimeout(deadline);
     releaseMic();
+    chunks.length = 0;
     players.forEach((player) => player.stop());
     players.clear();
     session?.close();
@@ -46,21 +63,47 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
     report.error(message);
   }
 
-  function complete() {
+  function complete(text = "") {
     clearTimeout(deadline);
     releaseMic();
     mode = "idle";
-    report.status("");
-    deliverTranscript();
     transcript = "";
-    transcriptDelivered = false;
+    finalReply = "";
+    chunks.length = 0;
+    sent = 0;
+    fallingBack = false;
+    if (liveFailed) close();
+    report.status("");
+    if (text) report.transcript(text);
   }
 
-  function deliverTranscript() {
-    const text = transcript.trim();
-    if (!text || transcriptDelivered) return;
-    transcriptDelivered = true;
-    report.transcript(text);
+  async function fallback() {
+    if (fallingBack || abort.signal.aborted) return;
+    fallingBack = true;
+    clearTimeout(deadline);
+    let text = "";
+    let error = "No speech detected. Try again or type your reply.";
+    try {
+      text = await transcribeAudio(pcmWave(chunks), abort.signal);
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : "Couldn’t transcribe your reply.";
+    }
+    if (abort.signal.aborted) return;
+    if (!turnDone) liveFailed = true;
+    const reply = text || transcript.trim();
+    if (reply) complete(reply);
+    else fail(error);
+  }
+
+  function flush() {
+    if (!session || liveFailed) return;
+    try {
+      while (sent < chunks.length) {
+        const data = btoa(String.fromCharCode(...new Uint8Array(chunks[sent])));
+        session.sendRealtimeInput({ audio: { data, mimeType: "audio/pcm;rate=16000" } });
+        sent++;
+      }
+    } catch { disconnected(); }
   }
 
   function play(data: string, mimeType: string) {
@@ -90,23 +133,25 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
     const content = message.serverContent;
     if (!content) return;
     if (mode === "listening" || mode === "processing") {
+      if (content.turnComplete) turnDone = true;
+      if (finalReply) {
+        if (turnDone) complete(finalReply);
+        return;
+      }
       const input = content.inputTranscription;
       transcript += input?.text || "";
-      if (input?.finished && transcript.trim() && !transcriptDelivered) {
-        releaseMic();
-        clearTimeout(deadline);
+      if (input?.finished && transcript.trim() && !liveFailed && !fallingBack) {
+        finalReply = transcript.trim();
+        if (turnDone) { complete(finalReply); return; }
+        // Drain the reply turn before allowing the next question to start.
         mode = "processing";
+        releaseMic();
         report.status("Transcribing…");
-        deadline = setTimeout(complete, 5_000);
-        deliverTranscript();
-      }
-      if (content.turnComplete) {
-        releaseMic();
         clearTimeout(deadline);
-        mode = "processing";
-        // Transcription can arrive independently of the end-of-turn event.
-        if (transcriptDelivered) complete();
-        else deadline = setTimeout(complete, 350);
+        deadline = setTimeout(disconnected, 3000);
+      } else if (content.turnComplete && mode === "listening" && sent) {
+        // A model turn can end before its input transcript arrives.
+        stop(false);
       }
     } else if (mode === "speaking") {
       for (const part of content.modelTurn?.parts ?? []) {
@@ -123,7 +168,9 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
   const resumed = context.resume();
   const connection = Promise.all([
     import("@google/genai"),
-    fetch("/api/looks/live-token", { method: "POST", signal: abort.signal }).then(async (response) => {
+    fetch("/api/looks/live-token", {
+      method: "POST", signal: AbortSignal.any([abort.signal, AbortSignal.timeout(12_000)]),
+    }).then(async (response) => {
       if (!response.ok) throw await responseError(response);
       return response.json() as Promise<{ token: string; model: string }>;
     }),
@@ -137,52 +184,63 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
     }, callbacks: { onmessage: onMessage, onerror: disconnected, onclose: disconnected } });
     if (abort.signal.aborted) { connected.close(); abort.signal.throwIfAborted(); }
     session = connected;
+    if (mode === "listening") flush();
     return connected;
   });
-  void connection.catch((error) => fail(error instanceof Error ? error.message : "Couldn’t connect to Gemini Live."));
+  void connection.catch(disconnected);
 
-  function stop() {
+  function stop(sendEnd = true) {
     if (mode !== "listening") return;
     mode = "processing";
     releaseMic();
-    try { session?.sendRealtimeInput({ audioStreamEnd: true }); }
-    catch { disconnected(); return; }
     report.status("Transcribing…");
     clearTimeout(deadline);
-    deadline = setTimeout(() => transcript.trim() ? complete() : fail("No speech was received. Try again or type your reply."), 5000);
+    if (!chunks.length) { fail("No microphone audio was captured. Check your input and try again."); return; }
+    if (liveFailed || !session) { void fallback(); return; }
+    flush();
+    if (liveFailed) return;
+    try { if (sendEnd) session.sendRealtimeInput({ audioStreamEnd: true }); }
+    catch { disconnected(); return; }
+    deadline = setTimeout(() => { void fallback(); }, 4000);
   }
 
   return {
+    get closed() { return abort.signal.aborted; },
     close,
-    stop,
+    stop: () => stop(),
     async listen() {
       if (mode !== "idle") return;
       mode = "listening";
+      turnDone = false;
       report.status("Starting mic…");
-      deadline = setTimeout(() => fail("Couldn’t start Gemini Live. You can continue by typing."), 15_000);
+      deadline = setTimeout(() => fail("No microphone audio was captured. Check your input and try again."), 15_000);
       try {
-        const [connected, stream] = await Promise.all([connection, navigator.mediaDevices.getUserMedia({
+        const [stream] = await Promise.all([navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
         }).then((opened) => {
           if (abort.signal.aborted || mode !== "listening") opened.getTracks().forEach((track) => track.stop());
           else mic = opened;
           return opened;
-        }), context.audioWorklet.addModule("/looks-mic.js")]);
+        }), context.audioWorklet.addModule("/looks-mic.js"), resumed]);
         if (abort.signal.aborted || mode !== "listening") return;
-        worklet = new AudioWorkletNode(context, "looks-mic", { numberOfOutputs: 0 });
+        worklet = new AudioWorkletNode(context, "looks-mic");
+        sink = context.createGain();
+        sink.gain.value = 0;
+        worklet.connect(sink).connect(context.destination);
         source = context.createMediaStreamSource(stream);
         worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
           if (mode !== "listening" || abort.signal.aborted) return;
-          const data = btoa(String.fromCharCode(...new Uint8Array(event.data)));
-          try { connected.sendRealtimeInput({ audio: { data, mimeType: "audio/pcm;rate=16000" } }); }
-          catch { disconnected(); }
+          if (!chunks.length) {
+            report.status("Listening…");
+            clearTimeout(deadline);
+            deadline = setTimeout(stop, 15_000);
+          }
+          chunks.push(event.data);
+          flush();
         };
         source.connect(worklet);
-        report.status("Listening…");
-        clearTimeout(deadline);
-        deadline = setTimeout(stop, 15_000);
       } catch {
-        fail("Microphone or Gemini Live unavailable. You can continue by typing.");
+        fail("Couldn’t start the microphone. Check your browser settings or type your reply.");
       }
     },
     async speak(text: string) {
@@ -193,6 +251,7 @@ export function openLiveAudio(report: { transcript: (text: string) => void; stat
       deadline = setTimeout(() => fail("Couldn’t play the question. You can read it in the composer."), 15_000);
       try {
         const connected = await connection;
+        if (abort.signal.aborted || liveFailed) throw new Error("Gemini Live disconnected.");
         connected.sendRealtimeInput({ text: `Read this question aloud, verbatim: ${JSON.stringify(text)}` });
       } catch { fail("Couldn’t play the question. You can read it in the composer."); }
     },

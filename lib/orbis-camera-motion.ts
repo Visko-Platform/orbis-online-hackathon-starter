@@ -62,8 +62,8 @@ export function cameraSteeringPayload(scene: string, edits: string[], sketch: st
     prompt: [
       `${PHOTOREAL_DIRECTION} Continue the same uninterrupted shot. Keep the character identity, wardrobe, props, lighting, setting and framing consistent except where specified below.`,
       `Opening look and setting (before later scene changes): ${scene.trim()}`,
-      sketch && `Live camera effect: ${sketch}`,
       ...edits.filter(Boolean).map((edit) => `Current scene direction (supersedes conflicting opening details; later statements supersede earlier ones): ${edit.trim()}`),
+      sketch && `Live camera effects to apply to the current scene: ${sketch}`,
       pose && `The character smoothly follows this current pose. It supersedes earlier body actions. ${pose} Keep unspecified body parts and facial features in their current pose.`,
     ].filter(Boolean).join("\n\n"),
     passthrough: true,

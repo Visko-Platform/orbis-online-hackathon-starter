@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { transcribeAudio } from "@/lib/looks/requests";
+
+const recorderTypes = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"];
 
 export function Voice({ context, disabled, onTranscript, onError, held = false, gestureOnly = false }: {
   context: number;
@@ -17,20 +20,32 @@ export function Voice({ context, disabled, onTranscript, onError, held = false, 
   useEffect(() => { callbacks.current = { onTranscript, onError }; }, [onTranscript, onError]);
   useEffect(() => {
     setStatus("");
-    return () => { active.current?.abort(); active.current = null; };
+    return () => { active.current?.abort(); active.current = null; stop.current = null; };
   }, [context]);
 
   async function record() {
     if (active.current || disabled) return;
     const job = new AbortController();
     active.current = job;
-    stop.current = () => job.abort();
+    stop.current = () => {
+      job.abort();
+      if (active.current === job) {
+        active.current = null;
+        stop.current = null;
+        setStatus("");
+        callbacks.current.onError("The microphone was still starting. Hold until Listening appears.");
+      }
+    };
     setStatus("Starting mic…");
     let stream: MediaStream | undefined;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("Microphone recording is unavailable in this browser.");
+      }
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       if (job.signal.aborted) return;
-      const recording = new MediaRecorder(stream);
+      const mimeType = recorderTypes.find((type) => MediaRecorder.isTypeSupported(type));
+      const recording = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       const audio = await new Promise<Blob>((resolve, reject) => {
         const parts: Blob[] = [];
         const finish = () => { if (recording.state !== "inactive") recording.stop(); };
@@ -41,21 +56,21 @@ export function Voice({ context, disabled, onTranscript, onError, held = false, 
         };
         stop.current = finish;
         job.signal.addEventListener("abort", finish, { once: true });
-        recording.ondataavailable = (event) => parts.push(event.data);
+        recording.ondataavailable = (event) => { if (event.data.size) parts.push(event.data); };
         recording.onerror = () => { cleanup(); reject(new Error("Recording failed.")); };
-        recording.onstop = () => { cleanup(); resolve(new Blob(parts, { type: recording.mimeType })); };
-        try { recording.start(); } catch (error) { cleanup(); reject(error); }
-        setStatus("Listening…");
+        recording.onstop = () => {
+          cleanup();
+          resolve(new Blob(parts, { type: parts[0]?.type || recording.mimeType || mimeType }));
+        };
+        try { recording.start(); setStatus("Listening…"); } catch (error) { cleanup(); reject(error); }
       });
       stream.getTracks().forEach((track) => track.stop());
-      if (job.signal.aborted || !audio.size) return;
+      if (job.signal.aborted) return;
       setStatus("Transcribing…");
-      const body = new FormData();
-      body.append("audio", audio, "instruction");
-      const response = await fetch("/api/looks/transcribe", { method: "POST", body, signal: job.signal });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      if (!job.signal.aborted && result.transcript) callbacks.current.onTranscript(result.transcript);
+      const text = await transcribeAudio(audio, job.signal);
+      if (job.signal.aborted) return;
+      if (text) callbacks.current.onTranscript(text);
+      else callbacks.current.onError("No speech detected. Speak while Listening appears.");
     } catch (error) {
       if (!job.signal.aborted) callbacks.current.onError(error instanceof Error ? error.message : "Microphone unavailable.");
     } finally {
@@ -79,6 +94,7 @@ export function Voice({ context, disabled, onTranscript, onError, held = false, 
       }}
       onPointerUp={() => stop.current?.()}
       onPointerCancel={() => active.current?.abort()}
+      onLostPointerCapture={() => stop.current?.()}
       onKeyDown={(event) => {
         if (event.key === "Escape") active.current?.abort();
         if (event.key !== " " && event.key !== "Enter") return;

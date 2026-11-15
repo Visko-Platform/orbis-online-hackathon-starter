@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Ink, PinchEvent } from "@/lib/camera/ink";
+import type { Ink, StrokeEvent } from "@/lib/camera/ink";
 import { attachSketch, captureStroke, drawSketchLayers, sketchTarget, type Attachment, type SketchLayer } from "@/lib/camera/sketch-layer";
 import { cutOutAccessory } from "@/lib/camera/accessory-overlay";
 import { canvasBlob } from "@/lib/camera/frame";
@@ -12,7 +12,7 @@ import { PROMPT_LIMIT } from "@/lib/looks/intent";
 
 type Audio = ReturnType<typeof preparePinchAudio>;
 type Captured = ReturnType<typeof captureStroke>;
-type Turn = { id: number; audio?: ReturnType<Audio["begin"]>; capture?: Captured; attachment?: Attachment; text?: string; ended: boolean };
+type Turn = { id: number; audio?: ReturnType<Audio["begin"]>; capture?: Captured; attachment?: Attachment; text?: string; ended: boolean; manual?: boolean };
 
 export function usePinchLayers(ink: Ink) {
   const [layers, setLayers] = useState<SketchLayer[]>([]);
@@ -21,6 +21,10 @@ export function usePinchLayers(ink: Ink) {
   const [caption, setCaption] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [lastStroke, setLastStroke] = useState<StrokeEvent>();
+  const lastCapture = useRef<Captured>(undefined);
+  const [manual, setManual] = useState(false);
+  const captionStroke = useRef<(event: StrokeEvent) => void>(null);
   const [generate, setGenerate] = useState(false);
   const auto = useRef(false);
   const armed = useRef(false);
@@ -42,6 +46,7 @@ export function usePinchLayers(ink: Ink) {
     jobs.current.clear();
     for (const layer of entries.current.values()) layer.generating = false;
     setPending(false);
+    setManual(false);
     setCaption("");
     setMicStatus("");
     setMicAccess("idle");
@@ -111,7 +116,7 @@ export function usePinchLayers(ink: Ink) {
   }
 
   useEffect(() => {
-    function finish(turn: Turn, event: PinchEvent) {
+    function finish(turn: Turn, event: StrokeEvent) {
       if (!turn.ended || turn.text === undefined || !turns.current.delete(turn.id)) return;
       setPending(turns.current.size > 0);
       if (!ink.hasStroke(turn.id) || !turn.capture || !turn.text) return;
@@ -124,42 +129,68 @@ export function usePinchLayers(ink: Ink) {
       else publish();
     }
 
-    ink.onPinch = (event) => {
+    function begin(event: StrokeEvent, capture?: Captured) {
       if (!armed.current) return;
-      if (event.phase === "start") {
-        if (current.current || !audio.current) return;
-        const turn: Turn = { id: event.id, ended: false };
-        turns.current.set(event.id, turn);
-        current.current = turn;
-        latest.current = event.id;
-        setCaption("");
-        setError("");
-        setPending(true);
-        try {
-          turn.audio = audio.current.begin((text) => {
-            if (latest.current === turn.id) setCaption(text);
-          }, (status) => {
-            if (latest.current === turn.id) setMicStatus(status);
-          }, (text, failure) => {
-            if (!turns.current.has(turn.id)) return;
-            turn.text = text.trim().slice(0, CAMERA_EDIT_LIMIT);
-            if (latest.current === turn.id) {
-              if (turn.text) setCaption(turn.text);
-              setMicStatus("");
-              if (failure) setError(failure);
-            }
-            finish(turn, event);
-          });
-        } catch {
-          turn.text = "";
-          setError("Microphone transcription unavailable.");
+      if (current.current?.ended) current.current.audio?.finish();
+      if (current.current || !audio.current) return;
+      const turn: Turn = { id: event.id, ended: !!capture, capture, manual: !!capture };
+      turns.current.set(event.id, turn);
+      current.current = turn;
+      latest.current = event.id;
+      setCaption("");
+      setError("");
+      setPending(true);
+      try {
+        turn.audio = audio.current.begin((text) => {
+          if (latest.current === turn.id) setCaption(text);
+        }, (status) => {
+          if (latest.current === turn.id) setMicStatus(status);
+        }, (text, failure) => {
+          if (!turns.current.has(turn.id)) return;
+          if (capture) {
+            setManual(false);
+            if (current.current === turn) current.current = null;
+          }
+          turn.text = text.trim().slice(0, CAMERA_EDIT_LIMIT);
+          if (latest.current === turn.id) {
+            if (turn.text) setCaption(turn.text);
+            setMicStatus("");
+            if (failure) setError(failure);
+          }
+          finish(turn, event);
+        });
+      } catch {
+        turn.text = "";
+        setError("Microphone transcription unavailable.");
+        if (capture) {
+          current.current = null;
+          finish(turn, event);
         }
+      }
+      return turn.audio;
+    }
+
+    captionStroke.current = (event) => {
+      if (turns.current.size || !ink.hasStroke(event.id)) return;
+      const capture = lastCapture.current ?? captureStroke(ink, event.id);
+      if (!capture) setError("Bring the last stroke into view to caption it.");
+      else if (begin(event, capture)) setManual(true);
+    };
+
+    ink.onStroke = (event) => {
+      if (event.phase === "start") {
+        if (!current.current?.manual) begin(event);
         return;
+      }
+      if (event.phase === "end") {
+        setLastStroke(event);
+        lastCapture.current = captureStroke(ink, event.id);
       }
       const turn = turns.current.get(event.id);
       if (!turn) return;
-      if (current.current === turn) current.current = null;
+      const clearCurrent = () => { if (current.current === turn) current.current = null; };
       if (event.phase === "cancel") {
+        clearCurrent();
         turn.audio?.cancel();
         turns.current.delete(event.id);
         setPending(turns.current.size > 0);
@@ -168,9 +199,10 @@ export function usePinchLayers(ink: Ink) {
         return;
       }
       turn.ended = true;
-      turn.capture = captureStroke(ink, event.id);
+      turn.capture = lastCapture.current;
       if (turn.capture) turn.attachment = attachSketch(ink, sketchTarget(event), turn.capture.bounds);
-      turn.audio?.end();
+      if (turn.audio) turn.audio.end(clearCurrent);
+      else clearCurrent();
       finish(turn, event);
     };
 
@@ -204,6 +236,7 @@ export function usePinchLayers(ink: Ink) {
         if (!turn.ended || ink.hasStroke(id)) continue;
         turn.audio?.cancel();
         turns.current.delete(id);
+        if (current.current === turn) { current.current = null; setManual(false); setMicStatus(""); }
         if (latest.current === id) setCaption("");
         changed = true;
       }
@@ -211,7 +244,8 @@ export function usePinchLayers(ink: Ink) {
     });
     return () => {
       unsubscribe();
-      ink.onPinch = ink.overlayJoints = ink.overlayShoulders = ink.drawOverlays = undefined;
+      captionStroke.current = null;
+      ink.onStroke = ink.overlayJoints = ink.overlayShoulders = ink.drawOverlays = undefined;
       audio.current?.close();
       audio.current = null;
       for (const job of jobs.current.values()) job.abort();
@@ -219,7 +253,12 @@ export function usePinchLayers(ink: Ink) {
     };
   }, [ink]);
 
-  return { layers, pending, caption, micAccess, micStatus, error, generate, enableMicrophone, stop, toggleGeneration() {
+  const canCaptionStroke = !!lastStroke && ink.hasStroke(lastStroke.id) && !entries.current.has(lastStroke.id);
+  return { layers, pending, caption, micAccess, micStatus, error, generate, enableMicrophone, stop,
+    manual, canCaptionStroke, captionLastStroke() {
+      if (manual) current.current?.audio?.finish();
+      else if (lastStroke) captionStroke.current?.(lastStroke);
+    }, toggleGeneration() {
     auto.current = !auto.current;
     setGenerate(auto.current);
   }, select(id: number, selected: boolean) {
