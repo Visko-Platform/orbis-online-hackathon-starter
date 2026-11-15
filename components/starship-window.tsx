@@ -29,7 +29,8 @@ import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { CockpitAudio } from "@/lib/cockpit-audio";
 import { Copilot, Priority } from "@/lib/copilot";
 import {
-  ORBIS_MODEL_NAME,
+  ORBIS_MODELS,
+  type OrbisModelKey,
   ORBIS_TRACKS,
   SESSION_LIMIT_SECONDS,
   unwrapOrbisMessage,
@@ -140,26 +141,46 @@ async function askScene<T>(body: Record<string, unknown>): Promise<T | null> {
 }
 
 export function StarshipWindow() {
-  const { getJwt, getCurrentJwt, clearJwt } = useReactorJwt();
+  // A/B: ?model=dynamic flies Orbis Dynamic; Stable is the default. Read
+  // after mount (the server render can't see the URL); the provider is keyed
+  // by model so it remounts cleanly before any flight starts.
+  const [model, setModel] = useState<OrbisModelKey>("stable");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("model") === "dynamic") setModel("dynamic");
+  }, []);
+  const { getJwt, getCurrentJwt, clearJwt } = useReactorJwt(model);
   return (
     <ReactorProvider
+      key={model}
       apiUrl="https://api.reactor.inc"
-      modelName={ORBIS_MODEL_NAME}
+      modelName={ORBIS_MODELS[model]}
       modelTracks={[...ORBIS_TRACKS]}
       connectOptions={{ autoConnect: false }}
       jwtToken={getJwt}
     >
-      <Cockpit clearJwt={clearJwt} getCurrentJwt={getCurrentJwt} />
+      <Cockpit clearJwt={clearJwt} getCurrentJwt={getCurrentJwt} model={model} />
     </ReactorProvider>
   );
+}
+
+/** Switch a URL parameter (A/B switches). Reloading is the safe way to change
+ *  the model: nothing from a flight on the other model can carry over. */
+function setParam(name: string, value: string | null, reload: boolean) {
+  const url = new URL(window.location.href);
+  if (value === null) url.searchParams.delete(name);
+  else url.searchParams.set(name, value);
+  if (reload) window.location.assign(url.toString());
+  else window.history.replaceState(null, "", url.toString());
 }
 
 function Cockpit({
   clearJwt,
   getCurrentJwt,
+  model,
 }: {
   clearJwt: () => void;
   getCurrentJwt: () => string | null;
+  model: OrbisModelKey;
 }) {
   const session = useOrbisSession(clearJwt, getCurrentJwt);
 
@@ -181,6 +202,14 @@ function Cockpit({
   /** Two independent faders (0–1): Orbis's world sound and VESTA's voice. */
   const [worldLevel, setWorldLevel] = useState(0.8);
   const [helm, setHelm] = useState<Helm>({ throttle: "cruise", bank: 0 });
+  /** A/B: the throttle a flight starts at (?throttle=boost); cruise default. */
+  const [startSpeed, setStartSpeed] = useState<"cruise" | "boost">("cruise");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("throttle") === "boost") {
+      setStartSpeed("boost");
+      setHelm((current) => ({ ...current, throttle: "boost" }));
+    }
+  }, []);
   const [mission, setMission] = useState<Mission>(MISSIONS[0]);
   const [missionStage, setMissionStage] = useState(1);
   const [missionDone, setMissionDone] = useState(false);
@@ -865,6 +894,8 @@ function Cockpit({
     if (phase !== "docked") return;
     opening.current = into;
     previewing.current = false;
+    helmRef.current = { throttle: startSpeed, bank: 0 };
+    setHelm(helmRef.current);
     visitedRef.current = [];
     setVisited([]);
     setPostcards([]);
@@ -1686,6 +1717,27 @@ function Cockpit({
             Log ({postcards.length})
           </button>
         )}
+        <button
+          type="button"
+          disabled={!docked}
+          title="Orbis Stable (default) or Orbis Dynamic. Switch while docked; the page reloads."
+          onClick={() => setParam("model", model === "stable" ? "dynamic" : null, true)}
+        >
+          Model: {model === "stable" ? "Stable" : "Dynamic"}
+        </button>
+        <button
+          type="button"
+          disabled={!docked}
+          title="The throttle each flight starts at. Switch while docked."
+          onClick={() => {
+            const next = startSpeed === "cruise" ? "boost" : "cruise";
+            setStartSpeed(next);
+            setHelm((current) => ({ ...current, throttle: next }));
+            setParam("throttle", next === "boost" ? "boost" : null, false);
+          }}
+        >
+          Start: {startSpeed === "cruise" ? "Cruise" : "Boost"}
+        </button>
         <button
           type="button"
           title="Cut: restart on the destination's pre-rendered frame under the warp. Morph: steer the live shot into it (C)"
