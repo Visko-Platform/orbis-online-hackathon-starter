@@ -75,40 +75,69 @@ void main() {
   // 1. The frozen frame, as we enter.
   vec3 still = texture2D(u_from, cover(centre + (v_uv - centre) * (1.0 - u_hold * 0.15), u_fromScale)).rgb;
 
-  // 2. Tunnel walls made of the old world, flying forward through them.
+  // 2. Tunnel walls made of the old world, flying forward through them,
+  //    motion-blurred along the direction of travel.
   float depth = 0.3 / max(r, 0.015) + u_travel * speed;
   float swirl = fbm(vec2(a * 1.6, depth * 0.55) + u_time * 0.12);
-  // abs(a)/PI mirrors the walls top-to-bottom, so there's no seam where the
-  // angle wraps around.
-  vec2 tuv = mirror(vec2(abs(a) / PI + swirl * 0.12 + depth * 0.025, depth * 0.17));
   float ca = 0.002 + 0.005 * approach; // chromatic fringing grows with speed
-  vec3 wall = vec3(
-    texture2D(u_from, cover(mirror(tuv + vec2(ca, 0.0)), u_fromScale)).r,
-    texture2D(u_from, cover(tuv, u_fromScale)).g,
-    texture2D(u_from, cover(mirror(tuv - vec2(ca, 0.0)), u_fromScale)).b);
+  vec3 wall = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    float lag = float(i) * (0.012 + 0.03 * approach);
+    // abs(a)/PI mirrors the walls top-to-bottom: no seam where the angle wraps.
+    vec2 tuv = mirror(vec2(abs(a) / PI + swirl * 0.12 + (depth - lag) * 0.025, (depth - lag) * 0.17));
+    wall += vec3(
+      texture2D(u_from, cover(mirror(tuv + vec2(ca, 0.0)), u_fromScale)).r,
+      texture2D(u_from, cover(tuv, u_fromScale)).g,
+      texture2D(u_from, cover(mirror(tuv - vec2(ca, 0.0)), u_fromScale)).b);
+  }
+  wall *= 0.25;
   wall = pow(wall, vec3(1.25)) * (0.18 + 0.82 * smoothstep(0.0, 0.75, r)); // contrast + depth falloff
-  wall += vec3(0.35, 0.75, 1.0) * max(0.0, fbm(vec2(a * 3.0, depth * 2.0 - u_time * 1.5)) - 0.45) * 0.9; // energy streaks
+  wall += vec3(0.35, 0.75, 1.0) * max(0.0, fbm(vec2(a * 3.0, depth * 2.0 - u_time * 1.5)) - 0.45) * 0.8; // energy streaks
   vec3 colour = mix(still, wall, smoothstep(0.0, 1.0, u_hold));
 
-  // 3. The lens: a glass sphere at the tunnel's end showing the view through
-  //    it bent and inverted. It grows as we approach; on exit it swells past
-  //    the screen and its bending relaxes to a flat picture.
+  // 3. The lens: a glass sphere at the tunnel's end, refracting the view
+  //    through it bent and inverted, with real dispersion (red, green and
+  //    blue bend by different amounts), a thin-film rainbow at the rim, a
+  //    Fresnel glow and a soft specular highlight. It grows as we approach;
+  //    on exit it swells past the screen and its bending relaxes to flat.
   float R = mix(0.05, 0.27, approach) * u_hold + u_progress * u_progress * 2.4;
   float lens = 1.0 - u_progress;
   if (r < R) {
     float k = r / R;
     vec2 q = (v_uv - centre) / max(R, 0.02);
-    vec2 bent = centre - q * 0.42 * (1.0 - 0.55 * k * k);           // inverted, magnified
-    vec2 luv = mix(v_uv, bent, lens);
+    float curve = 1.0 - 0.55 * k * k;
+    // Dispersion: each channel refracts with a slightly different strength.
+    vec2 bentR = centre - q * 0.41 * curve;
+    vec2 bentG = centre - q * 0.42 * curve;
+    vec2 bentB = centre - q * 0.43 * curve;
+    // On exit the bending relaxes quickly (lens squared), and lookups past
+    // the frame mirror back instead of smearing the edge pixels.
+    float bend = lens * lens;
+    vec2 uvR = mirror(mix(v_uv, bentR, bend));
+    vec2 uvG = mirror(mix(v_uv, bentG, bend));
+    vec2 uvB = mirror(mix(v_uv, bentB, bend));
     vec3 inside = u_hasTo > 0.5
-      ? texture2D(u_to, cover(luv, u_toScale)).rgb
-      : texture2D(u_from, cover(luv, u_fromScale)).rgb * vec3(0.8, 0.95, 1.12);
-    inside *= 1.0 + 0.35 * lens * (1.0 - k);                         // glassy brightening
+      ? vec3(texture2D(u_to, cover(uvR, u_toScale)).r,
+             texture2D(u_to, cover(uvG, u_toScale)).g,
+             texture2D(u_to, cover(uvB, u_toScale)).b)
+      : vec3(texture2D(u_from, cover(uvR, u_fromScale)).r,
+             texture2D(u_from, cover(uvG, u_fromScale)).g,
+             texture2D(u_from, cover(uvB, u_fromScale)).b) * vec3(0.82, 0.95, 1.12);
+    // Fresnel: glass brightens toward its rim.
+    float fresnel = pow(k, 3.0);
+    inside = mix(inside, inside * 1.3 + vec3(0.12, 0.2, 0.28), fresnel * lens);
+    // Soft specular highlight, upper left.
+    vec2 hl = (p / max(R, 0.02)) - vec2(-0.38, -0.42);
+    inside += vec3(1.0) * exp(-dot(hl, hl) * 9.0) * 0.35 * lens;
     colour = inside;
   }
-  float ring = exp(-pow((r - R) / (0.01 + 0.025 * R), 2.0)) * lens * u_hold;
-  colour += ring * vec3(0.78, 0.96, 1.0) * 1.5;                       // the bright rim of bent light
-  colour += vec3(0.3, 0.6, 1.0) * 0.22 * smoothstep(R * 2.6, R, r) * lens * u_hold; // halo
+  // The rim of bent light, with a thin-film rainbow running around it.
+  float rimWidth = 0.01 + 0.025 * R;
+  float ring = exp(-pow((r - R) / rimWidth, 2.0)) * lens * u_hold;
+  vec3 film = 0.6 + 0.4 * cos(6.2831 * (a / (2.0 * PI) * 2.0 + u_time * 0.15 + vec3(0.0, 0.33, 0.67)));
+  colour += ring * mix(vec3(0.85, 0.97, 1.0), film, 0.55) * 1.6;
+  // Bloom: a soft glow spilling out around the sphere.
+  colour += vec3(0.3, 0.6, 1.0) * 0.28 * smoothstep(R * 2.8, R, r) * lens * u_hold;
 
   // Land clean: the last moments are the plain live picture.
   if (u_hasTo > 0.5) colour = mix(colour, texture2D(u_to, cover(v_uv, u_toScale)).rgb, smoothstep(0.82, 1.0, u_progress));
