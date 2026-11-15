@@ -224,6 +224,10 @@ function Cockpit({
   const [countdown, setCountdown] = useState(0);
   const [flash, setFlash] = useState(0);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
+  /** Push-to-talk: true while the captain holds Space / the TALK button. */
+  const [listening, setListening] = useState(false);
+  /** What the captain just said (shown as a CAPTAIN subtitle). */
+  const [captainLine, setCaptainLine] = useState("");
   /** Jumps: "cut" restarts Orbis on the destination's pre-rendered frame,
    *  hidden inside the warp tunnel (exact image, possibly faster); "morph"
    *  steers the live shot into the new world with text. C or ?jump= switches. */
@@ -925,6 +929,8 @@ function Cockpit({
       onCaption: setCaption,
       onSpeaking: setSpeaking,
       onError: (message) => addLog(`${message}. Flying solo.`),
+      onTool: (name, args) => voiceRef.current.order(name, args),
+      onHeard: (text) => voiceRef.current.heard(text),
     });
     copilot.current = vesta;
     vesta.setVolume(vestaLevel);
@@ -1197,6 +1203,84 @@ function Cockpit({
     else if (phase === "flying") void jump(dest);
   };
 
+  // ---- Voice. Spoken orders arrive as VESTA's tool calls and run through the
+  // same functions as the buttons, so voice and clicks behave identically.
+  const findDestination = (asked: string): Destination | null => {
+    const text = asked.toLowerCase().trim();
+    const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, first: 1, second: 2, third: 3 };
+    const numbered = text.match(/\b(?:option|route|number|key)?\s*(\d|one|two|three|four|five|six|first|second|third)\b/);
+    if (numbered && /option|route|number|key|^\s*\S+\s*$/.test(text)) {
+      const index = (Number(numbered[1]) || words[numbered[1]] || 0) - 1;
+      const pick = keyList[index];
+      if (pick) return pick;
+    }
+    const candidates = [...keyList.filter((dest): dest is Destination => Boolean(dest)), ...LIBRARY, ORIGIN];
+    const plain = (value: string) => value.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9 ]/g, "");
+    const asked2 = plain(text);
+    return (
+      candidates.find((dest) => plain(dest.name) === asked2) ??
+      candidates.find((dest) => asked2.includes(plain(dest.name)) || plain(dest.name).includes(asked2)) ??
+      candidates.find((dest) => plain(dest.name).split(" ").some((word) => word.length > 3 && asked2.includes(word))) ??
+      null
+    );
+  };
+
+  const voiceOrder = (name: string, args: Record<string, unknown>): string => {
+    if (name === "engage") {
+      if (phase !== "briefing") return phase === "launching" ? "The drive is still spooling up." : "We're already flying.";
+      engage();
+      return "Blast shield opening.";
+    }
+    if (name === "choose_option") {
+      if (!emergency?.event.choices) return "There's no emergency to answer right now.";
+      const said = String(args.choice ?? "").toLowerCase();
+      const [cautious, bold] = emergency.event.choices;
+      const index: 0 | 1 =
+        said.includes(bold.label.toLowerCase()) || /bold|risk|ride|dive|go for|punch|through/.test(said)
+          ? 1
+          : said.includes(cautious.label.toLowerCase()) || /cautious|safe|shield|careful|pull|retreat/.test(said)
+            ? 0
+            : 1;
+      void resolve(index, true);
+      return `Chose "${emergency.event.choices[index].label}".`;
+    }
+    if (name === "go_to") {
+      const asked = String(args.destination ?? "").trim();
+      if (!asked) return "No destination given.";
+      if (phase === "jumping" || phase === "launching") return "We're mid-jump; ask again in a moment.";
+      if (phase === "briefing") return "Engage first: the blast shield is still closed.";
+      const dest = findDestination(asked) ?? plottedCourse(asked);
+      if (phase === "docked") {
+        launch(dest);
+        return `Launching straight for ${dest.name}.`;
+      }
+      void jump(dest);
+      return `Jumping to ${dest.name}.`;
+    }
+    return "Unknown order.";
+  };
+
+  const voiceRef = useRef({ order: voiceOrder, heard: (text: string) => setCaptainLine(text) });
+  voiceRef.current = { order: voiceOrder, heard: (text: string) => setCaptainLine(text) };
+
+  const startTalking = () => {
+    if (!copilot.current || listening) return;
+    setListening(true);
+    setCaptainLine("");
+    void copilot.current.startTalking();
+  };
+  const stopTalking = () => {
+    if (!listening) return;
+    setListening(false);
+    copilot.current?.stopTalking();
+  };
+  // The captain's line fades a few seconds after they stop talking.
+  useEffect(() => {
+    if (listening || !captainLine) return;
+    const timer = window.setTimeout(() => setCaptainLine(""), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [listening, captainLine]);
+
   // ---- Keyboard for demos: 1–6 keys, P plot, L launch, Esc cancel.
   // Dev only: J / A rehearse the jump / arrival effects without Orbis.
   const rehearse = (kind: Pulse["kind"]) => {
@@ -1219,6 +1303,8 @@ function Cockpit({
         onCaption: setCaption,
         onSpeaking: setSpeaking,
         onError: (message) => addLog(message),
+        onTool: (name, args) => voiceRef.current.order(name, args),
+        onHeard: (text) => voiceRef.current.heard(text),
       });
       copilot.current = vesta;
       vesta.setVolume(vestaLevel);
@@ -1296,6 +1382,28 @@ function Cockpit({
   const decide = (index: 0 | 1) => {
     if (emergency) void resolve(index, true);
   };
+  const talkRef = useRef({ startTalking, stopTalking });
+  talkRef.current = { startTalking, stopTalking };
+  useEffect(() => {
+    const isTyping = (event: KeyboardEvent) => (event.target as HTMLElement | null)?.tagName === "INPUT";
+    const down = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || isTyping(event)) return;
+      event.preventDefault();
+      if (!event.repeat) talkRef.current.startTalking();
+    };
+    const up = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || isTyping(event)) return;
+      event.preventDefault();
+      talkRef.current.stopTalking();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
   const keys = useRef({ decide, press, launch, engage, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout });
   keys.current = { decide, press, launch, engage, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout };
   useEffect(() => {
@@ -1471,7 +1579,16 @@ function Cockpit({
           </div>
         )}
 
-        {!docked && <VestaOrb copilot={copilot} speaking={speaking} />}
+        {!docked && <VestaOrb copilot={copilot} speaking={speaking} listening={listening} />}
+
+        {(listening || captainLine) && (
+          <div className="sw-subtitle is-captain" aria-live="polite">
+            <span className="sw-subtitle-name">
+              <i aria-hidden /> {listening ? "Listening…" : "Captain"}
+            </span>
+            {captainLine && <p>{captainLine}</p>}
+          </div>
+        )}
 
         {caption && (
           <div className={`sw-subtitle ${speaking ? "is-speaking" : ""}`} aria-live="polite">
@@ -1719,6 +1836,17 @@ function Cockpit({
         )}
         <button
           type="button"
+          className={`sw-talk ${listening ? "is-on" : ""}`}
+          disabled={docked}
+          title="Hold to talk to VESTA (or hold Space)"
+          onPointerDown={startTalking}
+          onPointerUp={stopTalking}
+          onPointerLeave={stopTalking}
+        >
+          {listening ? "● Listening" : "Hold to talk (Space)"}
+        </button>
+        <button
+          type="button"
           disabled={!docked}
           title="Orbis Stable (default) or Orbis Dynamic. Switch while docked; the page reloads."
           onClick={() => setParam("model", model === "stable" ? "dynamic" : null, true)}
@@ -1840,9 +1968,11 @@ function AmbientGlow() {
 function VestaOrb({
   copilot,
   speaking,
+  listening,
 }: {
   copilot: { current: Copilot | null };
   speaking: boolean;
+  listening: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1870,7 +2000,11 @@ function VestaOrb({
   }, [copilot]);
 
   return (
-    <div ref={host} className={`sw-orb ${speaking ? "is-speaking" : ""}`} aria-hidden>
+    <div
+      ref={host}
+      className={`sw-orb ${speaking ? "is-speaking" : ""} ${listening ? "is-listening" : ""}`}
+      aria-hidden
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/vesta-orb.jpg" alt="" draggable={false} />
       <span className="sw-orb-name">VESTA</span>

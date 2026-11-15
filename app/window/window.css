@@ -1687,3 +1687,46 @@ label.sw-mix {
 .sw-cut.is-fading canvas {
   opacity: 0;
 }
+
+/* Voice: the captain's line, the listening orb, the talk button. */
+/* The captain's line sits just above VESTA's, low on the glass. */
+.sw-subtitle.is-captain {
+  bottom: 38.5%;
+}
+
+@media (min-aspect-ratio: 21/10) {
+  .sw-subtitle.is-captain {
+    bottom: 41%;
+  }
+}
+
+.sw-subtitle.is-captain .sw-subtitle-name {
+  color: #f5b45a;
+}
+
+.sw-subtitle.is-captain .sw-subtitle-name i {
+  background: #ff8a5c;
+  box-shadow: 0 0 0.6cqw #ff8a5c;
+  opacity: 1;
+  animation: sw-voice 0.5s ease-in-out infinite alternate;
+}
+
+.sw-subtitle.is-captain p {
+  color: #ffe7cf;
+}
+
+.sw-orb.is-listening::after {
+  position: absolute;
+  inset: 8%;
+  content: "";
+  border: 2px solid rgba(255, 138, 92, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 1.2cqw rgba(255, 120, 60, 0.6);
+  animation: sw-alert-pulse 0.9s ease-in-out infinite;
+}
+
+.sw-corner .sw-talk.is-on {
+  color: #2a0600;
+  background: #ff8a5c;
+  border-color: #ff8a5c;
+}

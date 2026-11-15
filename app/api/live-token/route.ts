@@ -1,11 +1,7 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
-import {
-  COPILOT_INSTRUCTION,
-  COPILOT_MODEL,
-  COPILOT_VOICE,
-} from "@/lib/copilot-config";
+import { COPILOT_MODEL, COPILOT_SESSION_CONFIG } from "@/lib/copilot-config";
 
 export const runtime = "nodejs";
 
@@ -34,14 +30,7 @@ export async function POST() {
         newSessionExpireTime: new Date(now + 2 * 60_000).toISOString(),
         liveConnectConstraints: {
           model: COPILOT_MODEL,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: COPILOT_VOICE } },
-            },
-            outputAudioTranscription: {},
-            systemInstruction: COPILOT_INSTRUCTION,
-          },
+          config: COPILOT_SESSION_CONFIG,
         },
         httpOptions: { apiVersion: "v1alpha" },
       },

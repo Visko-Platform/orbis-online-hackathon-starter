@@ -6,7 +6,7 @@
 
 import { GoogleGenAI, type LiveServerMessage, Modality, type Session } from "@google/genai";
 
-import { COPILOT_INSTRUCTION, COPILOT_MODEL, COPILOT_VOICE } from "@/lib/copilot-config";
+import { COPILOT_MODEL, COPILOT_SESSION_CONFIG } from "@/lib/copilot-config";
 
 /** How much a ship update matters when VESTA is already talking. */
 export enum Priority {
@@ -22,7 +22,22 @@ type CopilotEvents = {
   onCaption: (text: string) => void;
   onSpeaking: (speaking: boolean) => void;
   onError: (message: string) => void;
+  /** A spoken order: run it and return a short result for VESTA. */
+  onTool?: (name: string, args: Record<string, unknown>) => string | Promise<string>;
+  /** What the captain said (live transcription while they talk). */
+  onHeard?: (text: string) => void;
 };
+
+// Microphone tap: posts raw mono samples from the audio thread.
+const TAP_WORKLET = `
+class VestaTap extends AudioWorkletProcessor {
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (channel) this.port.postMessage(channel.slice(0));
+    return true;
+  }
+}
+registerProcessor("vesta-tap", VestaTap);`;
 
 export class Copilot {
   private session: Session | null = null;
@@ -66,12 +81,8 @@ export class Copilot {
     });
     this.session = await ai.live.connect({
       model: COPILOT_MODEL,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: COPILOT_VOICE } } },
-        outputAudioTranscription: {},
-        systemInstruction: COPILOT_INSTRUCTION,
-      },
+      // Must match the config the token is locked to (same shared object).
+      config: COPILOT_SESSION_CONFIG,
       callbacks: {
         onmessage: (message) => this.handle(message),
         onerror: () => this.events.onError("Copilot connection error"),
@@ -163,8 +174,88 @@ export class Copilot {
     );
   }
 
+  // ---- Push-to-talk. While the captain holds the talk key, the mic streams
+  // 16 kHz PCM; activityStart/End mark the turn (no automatic detection, so
+  // ship audio and VESTA's own voice can never trigger one).
+  private mic: { context: AudioContext; stream: MediaStream; node: AudioWorkletNode } | null = null;
+  private talking = false;
+  private heard = "";
+  private pendingSamples: number[] = [];
+
+  async startTalking() {
+    if (!this.session || this.talking) return;
+    this.talking = true;
+    this.heard = "";
+    this.pending = null;
+    this.stopPlayback(); // barge in: the captain is talking
+    this.session.sendRealtimeInput({ activityStart: {} });
+    try {
+      if (!this.mic) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        const context = new AudioContext({ sampleRate: 16_000 });
+        const url = URL.createObjectURL(new Blob([TAP_WORKLET], { type: "application/javascript" }));
+        await context.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        const node = new AudioWorkletNode(context, "vesta-tap");
+        node.port.onmessage = (event: MessageEvent<Float32Array>) => this.onSamples(event.data);
+        context.createMediaStreamSource(stream).connect(node);
+        this.mic = { context, stream, node };
+      }
+      void this.mic.context.resume();
+    } catch {
+      this.talking = false;
+      this.session?.sendRealtimeInput({ activityEnd: {} });
+      this.events.onError("Microphone unavailable");
+    }
+  }
+
+  stopTalking() {
+    if (!this.talking) return;
+    this.talking = false;
+    this.flushSamples();
+    this.replying = true; // she'll answer; hold ship updates until she has
+    this.session?.sendRealtimeInput({ activityEnd: {} });
+  }
+
+  private onSamples(samples: Float32Array) {
+    if (!this.talking) return;
+    for (const sample of samples) this.pendingSamples.push(sample);
+    if (this.pendingSamples.length >= 1_600) this.flushSamples(); // ~100 ms
+  }
+
+  private flushSamples() {
+    if (!this.pendingSamples.length || !this.session) return;
+    const pcm = new Int16Array(this.pendingSamples.length);
+    this.pendingSamples.forEach((sample, index) => {
+      pcm[index] = Math.max(-1, Math.min(1, sample)) * 0x7fff;
+    });
+    this.pendingSamples = [];
+    let binary = "";
+    const bytes = new Uint8Array(pcm.buffer);
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    this.session.sendRealtimeInput({ audio: { data: btoa(binary), mimeType: "audio/pcm;rate=16000" } });
+  }
+
+  private async runTools(calls: { id?: string; name?: string; args?: Record<string, unknown> }[]) {
+    const responses = [];
+    for (const call of calls) {
+      let result = "Done.";
+      try {
+        result = (await this.events.onTool?.(call.name ?? "", call.args ?? {})) ?? "Not available.";
+      } catch (caught) {
+        result = `Failed: ${caught instanceof Error ? caught.message : String(caught)}`;
+      }
+      responses.push({ id: call.id, name: call.name, response: { result } });
+    }
+    this.session?.sendToolResponse({ functionResponses: responses });
+  }
+
   close() {
     this.closed = true;
+    this.mic?.stream.getTracks().forEach((track) => track.stop());
+    void this.mic?.context.close();
     if (this.replyTimer) window.clearTimeout(this.replyTimer);
     this.session?.close();
     this.session = null;
@@ -173,8 +264,15 @@ export class Copilot {
   }
 
   private handle(message: LiveServerMessage) {
+    if (message.toolCall?.functionCalls?.length) void this.runTools(message.toolCall.functionCalls);
     const content = message.serverContent;
     if (!content) return;
+
+    const heard = content.inputTranscription?.text;
+    if (heard) {
+      this.heard += heard;
+      this.events.onHeard?.(this.heard.trim());
+    }
 
     if (content.interrupted) {
       this.debug.interruptions += 1;
