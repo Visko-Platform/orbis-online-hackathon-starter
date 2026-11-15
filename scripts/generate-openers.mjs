@@ -2,16 +2,22 @@
 // image-anchored (Orbis holds composition far better from an image than from
 // text alone; set_image only works at the start of a run).
 //
-//   node --no-warnings scripts/generate-openers.mjs [--force] [world-id ...]
+//   node --no-warnings scripts/generate-openers.mjs [--force] [--model=<name>] [world-id ...]
 //
 // Reads GEMINI_API_KEY from .env.local. Writes public/worlds/<id>.jpg and
 // skips worlds that already have a frame unless --force is given.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const { DESTINATIONS, ORIGIN, sceneOf } = await import("../lib/starship.ts");
 
-const MODEL = "gemini-3.1-flash-image";
+// Highest-quality image model on the key ("Nano Banana Pro"). Override with
+// --model=<name>, e.g. --model=gemini-3.1-flash-image for faster drafts.
+const MODEL =
+  process.argv.find((arg) => arg.startsWith("--model="))?.slice("--model=".length) ??
+  "gemini-3-pro-image";
 const args = process.argv.slice(2);
 const force = args.includes("--force");
 const only = args.filter((arg) => !arg.startsWith("--"));
@@ -56,10 +62,39 @@ async function generate(world) {
   return `ok   ${world.id}`;
 }
 
-// Three at a time.
+// Two at a time (the Pro model is slow), with retries: one dropped
+// connection shouldn't sink the whole run.
+async function generateWithRetry(world, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const result = await generate(world);
+      if (!result.startsWith("FAIL") || attempt === attempts) return result;
+    } catch (caught) {
+      if (attempt === attempts) return `FAIL ${world.id}: ${caught?.cause?.code ?? caught?.message ?? caught}`;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000 * attempt));
+  }
+}
+
 const queue = [...worlds];
+const made = [];
 await Promise.all(
-  Array.from({ length: 3 }, async () => {
-    while (queue.length) console.log(await generate(queue.shift()));
+  Array.from({ length: 2 }, async () => {
+    while (queue.length) {
+      const world = queue.shift();
+      const result = await generateWithRetry(world);
+      console.log(result);
+      if (result.startsWith("ok")) made.push(fileURLToPath(new URL(`${world.id}.jpg`, outDir)));
+    }
   }),
 );
+
+// Image models sometimes bake in letterbox bars; trim them and normalize to
+// a clean 1920x1080, or Orbis treats the bars as part of the scene.
+if (made.length) {
+  console.log(
+    execFileSync("python3", [fileURLToPath(new URL("./fit-16x9.py", import.meta.url)), ...made], {
+      encoding: "utf8",
+    }).trim(),
+  );
+}

@@ -2,11 +2,18 @@
    cockpit art, so UI stays glued to the painted screens at any window size.
    Text sizes use cqw (1cqw = 1% of the stage width) for the same reason. */
 
+/* Any screen from a 4:3 laptop to 32:9 cinema: the 16:9 cockpit stage is
+   fitted so it is never cropped by more than ~6% (pure "cover" would cut the
+   console off the bottom of an ultrawide). Whatever is left over on very wide
+   or very tall screens is cabin wall, continuing the cockpit's own metal. */
 .sw {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: #000;
+  background:
+    radial-gradient(ellipse 30% 70% at 50% 45%, rgba(0, 0, 0, 0.9), transparent 75%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 7vh),
+    linear-gradient(90deg, #07080a, #17191c 18%, #0e1012 50%, #17191c 82%, #07080a);
   font-family: var(--font-hud), ui-monospace, monospace;
 }
 
@@ -16,10 +23,12 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: max(100vw, 177.78vh);
+  width: min(max(100vw, 177.78vh), calc(min(100vw, 177.78vh) * 1.06));
   aspect-ratio: 16 / 9;
   container-type: inline-size;
   transform: translate(-50%, -50%);
+  /* Blend the art's edges into the cabin wall when there are gutters. */
+  box-shadow: 0 0 6vh 3vh #0b0c0e;
 }
 
 /* 1. The world: oversized a little so parallax never shows an edge. */
@@ -308,8 +317,8 @@
 }
 
 /* Star-map keys on the console wings. */
-/* Kept inside 8.5%–91.5% of the art: covering a 16:10 or 3:2 screen crops
-   up to ~8% off each side, and the keys must survive that. */
+/* The stage is never cropped by more than ~3% a side, so the keys can sit
+   out on the console wings. */
 .sw-keys {
   position: absolute;
   top: 82.2%;
@@ -321,11 +330,11 @@
 }
 
 .sw-keys-left {
-  left: 9%;
+  left: 6%;
 }
 
 .sw-keys-right {
-  right: 9%;
+  right: 6%;
 }
 
 .sw-key {
@@ -569,33 +578,206 @@
   from { opacity: 0; }
 }
 
-/* Helm and mission: holographic readouts on the glass. */
-.sw-helm,
-.sw-mission {
+/* Helm and mission: holographic HUD panels that collapse to a slim tab.
+   Motion vocabulary (shared by every panel):
+     - unfold: the body grows from the tab (380 ms, decelerating);
+     - scan:   a bright line sweeps across the body once as it opens;
+     - lock:   corner brackets snap to the panel's corners;
+     - reveal: content lines fade up one after another (40 ms stagger). */
+.holo {
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 0.4cqw;
-  padding: 0.7cqw 0.8cqw;
   color: #c9fbf5;
   font-size: 0.6cqw;
-  background: rgba(4, 22, 24, 0.55);
-  border: 1px solid rgba(143, 243, 234, 0.3);
-  border-radius: 0.4cqw;
-  box-shadow: inset 0 0 1.2cqw rgba(80, 240, 220, 0.08);
-  backdrop-filter: blur(3px);
+  filter: drop-shadow(0 0 0.8cqw rgba(80, 240, 220, 0.12));
 }
 
 .sw-helm {
   bottom: 25%;
-  left: 9.5%;
-  width: 9.5%;
+  left: 7.5%;
+  width: 10.5%;
+  flex-direction: column-reverse; /* sits low: unfolds upward */
 }
 
 .sw-mission {
-  top: 20%;
-  right: 9.5%;
-  width: 15%;
+  top: 19%;
+  right: 7.5%;
+  width: 16%;
+}
+
+.holo-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5cqw;
+  width: 100%;
+  padding: 0.45cqw 0.7cqw;
+  color: #c9fbf5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(90deg, rgba(8, 40, 42, 0.82), rgba(4, 20, 22, 0.7));
+  border: 1px solid rgba(143, 243, 234, 0.4);
+  clip-path: polygon(0.6cqw 0, 100% 0, 100% calc(100% - 0.6cqw), calc(100% - 0.6cqw) 100%, 0 100%, 0 0.6cqw);
+  backdrop-filter: blur(4px);
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+.holo-tab:hover {
+  border-color: rgba(143, 243, 234, 0.85);
+}
+
+.holo-title {
+  color: #f5b45a;
+  font-size: 0.5cqw;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.holo-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.62cqw;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.holo-key {
+  padding: 0 0.3cqw;
+  color: rgba(201, 251, 245, 0.55);
+  font: inherit;
+  font-size: 0.45cqw;
+  border: 1px solid rgba(143, 243, 234, 0.3);
+  border-radius: 0.15cqw;
+}
+
+.holo-body {
+  position: relative;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 380ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 220ms ease;
+}
+
+.holo.is-open .holo-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.holo-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqw;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 0.8cqw;
+  background:
+    /* corner brackets */
+    linear-gradient(#8ff3ea, #8ff3ea) top left / 0.9cqw 1px no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) top left / 1px 0.9cqw no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) bottom right / 0.9cqw 1px no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) bottom right / 1px 0.9cqw no-repeat,
+    /* faint scan lines */
+    repeating-linear-gradient(0deg, rgba(143, 243, 234, 0.035) 0 1px, transparent 1px 3px),
+    rgba(4, 22, 24, 0.62);
+  backdrop-filter: blur(4px);
+  transition: padding 380ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.holo.is-open .holo-inner {
+  padding: 0.7cqw 0.8cqw;
+}
+
+/* Scan line sweeping once across the body as it opens. */
+.holo-body::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, transparent, #c9fff9, transparent);
+  box-shadow: 0 0 0.8cqw #8ff3ea;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo.is-open .holo-body::after {
+  animation: holo-scan 620ms cubic-bezier(0.3, 0.6, 0.3, 1) 80ms;
+}
+
+@keyframes holo-scan {
+  0% { top: 0; opacity: 0; }
+  15% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* Content lines rise in one after another. */
+.holo.is-open .holo-inner > * {
+  animation: holo-line 360ms cubic-bezier(0.2, 0.9, 0.2, 1) backwards;
+}
+
+.holo.is-open .holo-inner > :nth-child(2) { animation-delay: 40ms; }
+.holo.is-open .holo-inner > :nth-child(3) { animation-delay: 80ms; }
+.holo.is-open .holo-inner > :nth-child(4) { animation-delay: 120ms; }
+.holo.is-open .holo-inner > :nth-child(5) { animation-delay: 160ms; }
+
+@keyframes holo-line {
+  from {
+    opacity: 0;
+    transform: translateY(0.4cqw);
+    filter: blur(2px);
+  }
+}
+
+.sw-mission-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5cqw;
+  text-transform: none;
+}
+
+.sw-mission-summary .sw-pips {
+  flex: 0 0 4cqw;
+}
+
+/* The briefing stows into the mission tab on ENGAGE. */
+.sw-briefing.is-stowing {
+  animation: sw-stow 900ms cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+
+@keyframes sw-stow {
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translate(24cqw, -21cqw) scale(0.18);
+    filter: blur(1px);
+  }
+}
+
+/* Wide screens: the live world glows into the side bands. */
+.sw-ambient {
+  position: absolute;
+  inset: -10%;
+  width: 120%;
+  height: 120%;
+  opacity: 0;
+  filter: blur(60px) saturate(1.4) brightness(0.55);
+  transition: opacity 1.2s ease;
+}
+
+.sw-ambient.is-live {
+  opacity: 1;
 }
 
 .sw-helm button,
@@ -666,7 +848,7 @@
   background: #8ff3ea;
 }
 
-.sw-mission strong {
+.sw-mission .holo-inner > strong {
   color: #f8d9a8;
   font-size: 0.85cqw;
   font-weight: 400;
@@ -696,9 +878,8 @@
   box-shadow: 0 0 0.6cqw rgba(245, 180, 90, 0.7);
 }
 
-.sw-mission.is-done {
-  border-color: rgba(245, 180, 90, 0.6);
-  box-shadow: 0 0 1.6cqw rgba(245, 180, 90, 0.25);
+.sw-mission.is-done .holo-tab {
+  border-color: rgba(245, 180, 90, 0.7);
 }
 
 /* Mission routes glow gold. */
@@ -822,6 +1003,321 @@
   background: #8ff3ea;
   border: 0;
   border-radius: 999px;
+}
+
+/* Blast shield: closed during the briefing, parts on ENGAGE. The world is
+   already live behind it, which hides Orbis's start-up delay. */
+.sw-shield {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.sw-shield-door {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 50.5%;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 9cqw),
+    linear-gradient(#1b1e22, #0d0f12);
+  transition: transform 1.3s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.sw-shield-top {
+  top: 0;
+  border-bottom: 0.25cqw solid #f5b45a;
+  box-shadow: 0 0.4cqw 1.6cqw rgba(245, 170, 70, 0.35);
+}
+
+.sw-shield-bottom {
+  bottom: 0;
+  border-top: 0.25cqw solid #f5b45a;
+}
+
+.sw-shield.is-opening .sw-shield-top {
+  transform: translateY(-102%);
+}
+
+.sw-shield.is-opening .sw-shield-bottom {
+  transform: translateY(102%);
+}
+
+.sw-briefing {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7cqw;
+  width: min(46%, 44cqw);
+  padding: 1.6cqw 2cqw;
+  color: #e6fffb;
+  text-align: center;
+  background: rgba(3, 14, 16, 0.86);
+  border: 1px solid rgba(143, 243, 234, 0.4);
+  border-radius: 0.5cqw;
+  box-shadow: 0 0 3cqw rgba(80, 240, 220, 0.15);
+  transform: translate(-50%, -50%);
+  animation: sw-fade-in 500ms ease-out;
+}
+
+.sw-briefing .sw-label {
+  font-size: 0.6cqw;
+}
+
+.sw-briefing h2 {
+  margin: 0;
+  color: #f8d9a8;
+  font-size: 2cqw;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+.sw-briefing p {
+  margin: 0;
+  color: #b9e6e0;
+  font-size: 0.85cqw;
+  line-height: 1.5;
+}
+
+.sw-briefing-first {
+  color: #8ff3ea !important;
+}
+
+.sw-briefing-actions {
+  display: flex;
+  gap: 0.8cqw;
+  margin-top: 0.4cqw;
+}
+
+.sw-engage,
+.sw-briefing-next {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0.3cqw;
+}
+
+.sw-engage {
+  min-width: 14cqw;
+  padding: 0.6cqw 1.6cqw;
+  color: #04211e;
+  font-size: 1cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  background: #8ff3ea;
+  border: 0;
+  box-shadow: 0 0 1.6cqw rgba(80, 240, 220, 0.6);
+  animation: sw-alert-pulse 1.4s ease-in-out infinite;
+}
+
+.sw-engage:disabled {
+  color: #8ff3ea;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  cursor: progress;
+  background: rgba(143, 243, 234, 0.1);
+  box-shadow: none;
+  animation: sw-scan 1.2s ease-in-out infinite;
+}
+
+.sw-briefing-next {
+  padding: 0.6cqw 1cqw;
+  color: #f5b45a;
+  font-size: 0.7cqw;
+  background: transparent;
+  border: 1px solid rgba(245, 180, 90, 0.5);
+}
+
+.sw-launch.is-engage {
+  animation: sw-alert-pulse 1.4s ease-in-out infinite;
+}
+
+/* Emergency decision: two choices and a draining timer. */
+.sw-decision {
+  position: absolute;
+  bottom: 24%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7cqw;
+  width: min(54%, 52cqw);
+  transform: translateX(-50%);
+  animation: sw-choice-in 420ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.sw-decision-title {
+  color: #ffd2b8;
+  font-size: 0.75cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-shadow: 0 0 1cqw rgba(255, 90, 40, 0.8);
+}
+
+.sw-decision-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1cqw;
+  width: 100%;
+}
+
+.sw-decision-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8cqw;
+  padding: 1cqw 1.2cqw;
+  color: #dffcf8;
+  font: inherit;
+  font-size: 1.3cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: linear-gradient(160deg, rgba(10, 52, 50, 0.88), rgba(4, 18, 20, 0.9));
+  border: 1px solid rgba(143, 243, 234, 0.7);
+  clip-path: polygon(1cqw 0, 100% 0, 100% calc(100% - 1cqw), calc(100% - 1cqw) 100%, 0 100%, 0 1cqw);
+  box-shadow: inset 0 0 1.6cqw rgba(80, 240, 220, 0.15);
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
+}
+
+.sw-decision-button.is-bold {
+  color: #ffe6d4;
+  background: linear-gradient(160deg, rgba(80, 26, 8, 0.9), rgba(30, 8, 2, 0.92));
+  border-color: rgba(255, 138, 92, 0.85);
+  box-shadow: inset 0 0 1.6cqw rgba(255, 110, 60, 0.2);
+}
+
+.sw-decision-button:hover {
+  filter: brightness(1.25);
+  transform: translateY(-0.2cqw);
+}
+
+.sw-decision-button kbd {
+  padding: 0 0.35cqw;
+  font: inherit;
+  font-size: 0.6cqw;
+  border: 1px solid currentColor;
+  border-radius: 0.15cqw;
+  opacity: 0.7;
+}
+
+.sw-decision-button small {
+  color: #f5b45a;
+  font-size: 0.7cqw;
+  letter-spacing: 0.05em;
+}
+
+.sw-decision-timer {
+  width: 100%;
+  height: 0.25cqw;
+  background: linear-gradient(90deg, #ff8a5c, #f5b45a);
+  box-shadow: 0 0 0.8cqw rgba(255, 120, 60, 0.7);
+  transform-origin: left;
+  animation: sw-drain linear forwards;
+}
+
+@keyframes sw-drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* The Impactor finale. */
+.sw-detonate {
+  position: absolute;
+  bottom: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.sw-detonate-button {
+  padding: 0.9cqw 2.6cqw;
+  color: #2a0600;
+  font: inherit;
+  font-size: 1.4cqw;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: #ff8a5c;
+  border: 0;
+  border-radius: 0.4cqw;
+  box-shadow: 0 0 2.4cqw rgba(255, 110, 60, 0.7);
+  animation: sw-alert-pulse 0.8s ease-in-out infinite, sw-choice-in 400ms ease-out;
+}
+
+.sw-detonate-button.is-reverse {
+  color: #04211e;
+  background: #8ff3ea;
+  box-shadow: 0 0 2.4cqw rgba(80, 240, 220, 0.7);
+}
+
+.sw-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #ffd2b8;
+  text-shadow: 0 0 1.4cqw rgba(255, 90, 40, 0.8);
+}
+
+.sw-countdown span {
+  font-size: 0.8cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.sw-countdown strong {
+  font-size: 6cqw;
+  font-weight: 400;
+  line-height: 1;
+  animation: sw-tick 1s ease-out;
+}
+
+@keyframes sw-tick {
+  from {
+    opacity: 0.2;
+    transform: scale(1.5);
+  }
+}
+
+.sw-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, #fff, #ffd9b0 40%, rgba(255, 160, 80, 0) 75%);
+  animation: sw-flash 1.6s ease-out forwards;
+}
+
+@keyframes sw-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sw-score {
+  color: #c8955a;
+  font-size: 0.55cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sw-score strong {
+  display: inline-block;
+  margin-left: 0.3cqw;
+  color: #f8d9a8;
+  font-size: 0.8cqw;
+  font-weight: 400;
+  letter-spacing: 0;
+  animation: sw-tick 600ms ease-out;
+}
+
+.sw-reel-score {
+  color: #f5b45a;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 /* VESTA's plotted routes: holo cards that slide up over the lower windshield. */
@@ -972,6 +1468,15 @@ label.sw-mix {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .holo-body,
+  .holo-inner {
+    transition: none;
+  }
+  .holo.is-open .holo-body::after,
+  .holo.is-open .holo-inner > *,
+  .sw-briefing.is-stowing {
+    animation: none;
+  }
   .sw-choice,
   .sw-choice::after {
     animation: none;

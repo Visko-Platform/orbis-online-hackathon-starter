@@ -83,10 +83,22 @@ export const JUMP_PROMPT =
 // ---- Missions: a goal threaded through the flight. The director makes one
 // route per scan carry it forward; the fourth mission world is the finale.
 
-export type Mission = { id: string; title: string; goal: string };
+export type Mission = {
+  id: string;
+  title: string;
+  goal: string;
+  /** A scripted finale played at the final mission world. */
+  finale?: "detonate";
+};
 export const MISSION_STAGES = 4;
 
 export const MISSIONS: Mission[] = [
+  {
+    id: "impactor",
+    title: "Impactor",
+    goal: "An asteroid is on a collision course with Earth. Follow its trail back through time, find it, plant a charge on its surface, then back away at full reverse before it blows.",
+    finale: "detonate",
+  },
   {
     id: "lantern",
     title: "The Lantern Signal",
@@ -175,3 +187,22 @@ export function plottedCourse(text: string): Destination {
     view: `${place}, from low above it: rich detail close below, the heart of the place in the midground, and a striking landmark on the horizon in atmospheric light`,
   };
 }
+
+// ---- The Impactor finale: three scripted scenes, sent in order.
+
+export const IMPACTOR = {
+  /** Shown once the crew plants the charge. */
+  charge:
+    "The same vast cratered asteroid fills the view, its grey rock surface close below. A heavy metal charge is clamped to the rock in the foreground, a red light on it blinking fast, thin vapour venting from its seams, the black star field beyond.",
+  /** Backing away, the charge still blinking. */
+  retreat:
+    "The same cratered asteroid, now shrinking into the distance against the black star field, a tiny red light blinking on its surface as it falls away.",
+  /** The detonation. */
+  blast:
+    "The distant asteroid erupts in a blinding white-orange explosion, splitting into huge glowing fragments that tumble apart and scatter away in every direction, a ring of debris and fire expanding against the stars.",
+  /** Seconds on the countdown after FULL REVERSE. */
+  countdown: 10,
+};
+
+/** Points: exploring pays, the mission pays more. */
+export const POINTS = { world: 100, clue: 250, finale: 500, earthSaved: 1000 };

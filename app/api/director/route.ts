@@ -19,10 +19,17 @@ Given the current world and the voyage so far, return:
    current world: a thread pulled from it (its past, its future, a rumour, a
    signal, a strange neighbour). Mix eras and scales: at least one surprising
    leap. Never repeat a world already visited.
-2. "event": an unexpected thing that happens AT the current world a little
-   after arrival (a storm, a creature surfacing, a signal flare, an eclipse,
-   a time ripple). It must change the view without leaving the place. Return
-   it about two times in three; otherwise return null.
+2. "event": an EMERGENCY that hits AT the current world a little after
+   arrival and forces the captain to decide (a storm front, a creature
+   surfacing beneath the ship, a collapsing structure, hostile signal lock, a
+   time rip opening ahead). It must change the view without leaving the place.
+   Always return one. Give it exactly two "choices", which the captain picks
+   by clicking a button:
+     - choices[0]: the CAUTIOUS response (e.g. "Pull up", "Shields up").
+     - choices[1]: the BOLD response (e.g. "Dive through", "Follow it").
+   Each choice: "label" (2–3 words, imperative, fits on a button), "outcome"
+   (the new view after acting, same rules as every view), "log" (terse ship's
+   log line of what happened), "points" (cautious 100–200, bold 250–400).
 
 Every "view" describes the world straight ahead in LAYERS, as complete
 sentences: what is close below in the foreground, what fills the midground,
@@ -69,16 +76,30 @@ const SCHEMA = {
     },
     event: {
       type: Type.OBJECT,
-      nullable: true,
       properties: {
         title: { type: Type.STRING, description: "2–4 words, alert style" },
         view: VIEW,
         log: { type: Type.STRING },
+        choices: {
+          type: Type.ARRAY,
+          minItems: "2",
+          maxItems: "2",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              label: { type: Type.STRING },
+              outcome: VIEW,
+              log: { type: Type.STRING },
+              points: { type: Type.INTEGER },
+            },
+            required: ["label", "outcome", "log", "points"],
+          },
+        },
       },
-      required: ["title", "view", "log"],
+      required: ["title", "view", "log", "choices"],
     },
   },
-  required: ["options"],
+  required: ["options", "event"],
 };
 
 export async function POST(request: Request) {

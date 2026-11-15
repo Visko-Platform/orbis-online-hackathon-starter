@@ -20,13 +20,13 @@ import {
   useReactorMessage,
 } from "@reactor-team/js-sdk";
 import Link from "next/link";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { type Pulse, WarpCanvas } from "@/components/warp-canvas";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { CockpitAudio } from "@/lib/cockpit-audio";
-import { Copilot } from "@/lib/copilot";
+import { Copilot, Priority } from "@/lib/copilot";
 import {
   ORBIS_MODEL_NAME,
   ORBIS_TRACKS,
@@ -44,13 +44,25 @@ import {
   MISSION_STAGES,
   MISSIONS,
   type Mission,
+  IMPACTOR,
+  POINTS,
   sceneOf,
   THROTTLES,
 } from "@/lib/starship";
 
-type Phase = "docked" | "launching" | "flying" | "jumping";
+type Phase = "docked" | "launching" | "briefing" | "flying" | "jumping";
 
-type WorldEvent = { title: string; view: string; log: string };
+/** The Impactor finale, step by step. */
+type Detonation = "none" | "arrived" | "planted" | "countdown" | "done";
+
+type Choice = { label: string; outcome: string; log: string; points: number };
+type WorldEvent = { title: string; view: string; log: string; choices?: Choice[] };
+
+/** An emergency waiting on the captain's decision. */
+type Emergency = { event: WorldEvent; world: number; deadline: number };
+
+/** Seconds the captain has to decide before VESTA takes the cautious option. */
+const DECIDE_SECONDS = 15;
 
 type DirectorPlan = {
   options?: {
@@ -157,6 +169,15 @@ function Cockpit({
   const [missionDone, setMissionDone] = useState(false);
   const [postcards, setPostcards] = useState<Postcard[]>([]);
   const [showReel, setShowReel] = useState(false);
+  const [score, setScore] = useState(0);
+  const [shieldOpening, setShieldOpening] = useState(false);
+  const [helmOpen, setHelmOpen] = useState(false);
+  const [missionOpen, setMissionOpen] = useState(false);
+  const helmTimer = useRef<number | null>(null);
+  const [detonation, setDetonation] = useState<Detonation>("none");
+  const [countdown, setCountdown] = useState(0);
+  const [flash, setFlash] = useState(0);
+  const [emergency, setEmergency] = useState<Emergency | null>(null);
   const [vestaLevel, setVestaLevel] = useState(1);
 
   const stage = useRef<HTMLDivElement>(null);
@@ -188,9 +209,9 @@ function Cockpit({
     setShaking(true);
     window.setTimeout(() => setShaking(false), SHAKE_MS);
   };
-  const tellVesta = (text: string) => {
+  const tellVesta = (text: string, priority: Priority = Priority.Normal) => {
     lastSpokeAt.current = Date.now();
-    copilot.current?.update(text);
+    copilot.current?.update(text, priority);
   };
 
   /** Steer Orbis to a scene, with the helm's motion composed in. */
@@ -328,7 +349,10 @@ function Cockpit({
       beats.current += 1;
       // Now and then, VESTA remarks on what she sees (if she's been quiet).
       if (beats.current % 3 === 0 && Date.now() - lastSpokeAt.current > 15_000) {
-        tellVesta("Observation: say one short remark about something you can see right now.");
+        tellVesta(
+          "Observation: say one short remark about something you can see right now.",
+          Priority.Low,
+        );
       }
     }, SCENE_BEAT_MS);
     return () => window.clearInterval(timer);
@@ -346,13 +370,22 @@ function Cockpit({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [helm]);
 
+  /** Using the helm pops its panel open; it tucks away again when idle. */
+  const peekHelm = () => {
+    setHelmOpen(true);
+    if (helmTimer.current) window.clearTimeout(helmTimer.current);
+    helmTimer.current = window.setTimeout(() => setHelmOpen(false), 6_000);
+  };
+
   const setThrottle = (offset: -1 | 1) =>
     setHelm((current) => {
       const index = THROTTLES.indexOf(current.throttle) + offset;
       if (index < 0 || index >= THROTTLES.length) return current;
+      peekHelm();
       return { ...current, throttle: THROTTLES[index] };
     });
   const bank = (direction: -1 | 1) => {
+    peekHelm();
     if (bankTimer.current) window.clearTimeout(bankTimer.current);
     setHelm((current) => ({ ...current, bank: current.bank === direction ? 0 : direction }));
     bankTimer.current = window.setTimeout(
@@ -419,18 +452,31 @@ function Cockpit({
 
     const { mission: goal, stage: currentStage } = missionRef.current;
     let missionNote = "";
-    if (dest.finale) {
+    let points = how === "jump" ? POINTS.world : 0;
+    if (dest.finale && goal.finale === "detonate") {
+      // The Impactor: the mission completes only once the asteroid blows.
+      setDetonation("arrived");
+      setAlert("Impactor located");
+      missionNote = ` This is the asteroid on course for Earth, the end of our mission. Urge the captain to plant the charge NOW.`;
+    } else if (dest.finale) {
       setMissionDone(true);
       setAlert("Mission complete");
+      points += POINTS.finale;
       missionNote = ` This is the finale of our mission "${goal.title}" (${goal.goal}). Deliver the payoff in two sentences: what we found here and what it means.`;
     } else if (dest.mission) {
       setMissionStage((stage) => Math.min(MISSION_STAGES, stage + 1));
+      points += POINTS.clue;
       missionNote = ` This world was on the mission trail (we came for: ${dest.clue}). Mention the clue we find here in one breath.`;
+    }
+    if (points) {
+      setScore((current) => current + points);
+      addLog(`+${points} points.`);
     }
     tellVesta(
       how === "launch"
-        ? `Launch complete. We are at ${dest.name} (${dest.era}). Greet the captain and the room, say what you see outside, and announce our mission "${goal.title}": ${goal.goal}`
+        ? `The blast shield is open: we are at ${dest.name} (${dest.era}). Say what you see outside.`
         : `Arrived at ${dest.name} (${dest.era}). Say what you see outside.${missionNote}`,
+      dest.finale ? Priority.Urgent : Priority.Normal,
     );
     const stageForScan = dest.mission ? Math.min(MISSION_STAGES, currentStage + 1) : currentStage;
 
@@ -476,6 +522,7 @@ function Cockpit({
               .slice(0, 3)
               .map((option) => `${option.name} (${option.era}), "${option.teaser}"`)
               .join("; ")}. Tease them and pick a favourite.`,
+            Priority.Low,
           );
         }, 6_000);
         if (plan.event) {
@@ -500,30 +547,77 @@ function Cockpit({
   // ---- An unexpected event: alert, morph the view in place, VESTA reacts.
   const strike = async (event: WorldEvent, thisWorld: number) => {
     if (world.current !== thisWorld || sceneLock.current !== "free") return;
-    // Send it to Orbis silently; only raise the alarm once it's on screen.
+    // Send it to Orbis first; raise the alarm once it's on screen (or, if the
+    // vision check never confirms it, when the wait runs out: never drop it).
     sceneLock.current = "event";
     const ok = await steer(event.view);
     if (!ok || world.current !== thisWorld) {
       if (world.current === thisWorld) sceneLock.current = "free";
       return;
     }
-    const seen = await waitUntilSeen(event.view, () => world.current === thisWorld);
+    await waitUntilSeen(event.view, () => world.current === thisWorld);
     if (world.current !== thisWorld) return;
     setHere((current) => ({ ...current, view: event.view, generated: true }));
-    sceneLock.current = "free";
-    if (!seen) {
-      addLog("Sensors flagged something, but it never surfaced.");
-      return;
-    }
     audio.current?.alert();
     setAlert(event.title);
     shake();
     addLog(event.log);
-    tellVesta(`ALERT: ${event.title}. Call it out from what you can see.`);
-    window.setTimeout(() => {
-      if (world.current === thisWorld) setAlert(null);
-    }, 7_000);
+    if (event.choices?.length === 2) {
+      // A decision: the scene stays locked on the emergency until it's resolved.
+      setEmergency({ event, world: thisWorld, deadline: Date.now() + DECIDE_SECONDS * 1_000 });
+      tellVesta(
+        `EMERGENCY: ${event.title}. Call it out from what you can see, then ask the captain to choose: "${event.choices[0].label}" or "${event.choices[1].label}". Be quick.`,
+        Priority.Urgent,
+      );
+    } else {
+      sceneLock.current = "free";
+      tellVesta(`ALERT: ${event.title}. Call it out from what you can see.`, Priority.Urgent);
+      window.setTimeout(() => {
+        if (world.current === thisWorld) setAlert(null);
+      }, 7_000);
+    }
   };
+
+  /** The captain decided (or the clock ran out and VESTA did). */
+  const resolve = async (index: 0 | 1, byCaptain: boolean) => {
+    const pending = emergency;
+    if (!pending || world.current !== pending.world) return;
+    const choice = pending.event.choices?.[index];
+    setEmergency(null);
+    setAlert(null);
+    if (!choice) {
+      sceneLock.current = "free";
+      return;
+    }
+    const points = byCaptain ? choice.points : 0;
+    if (points) setScore((current) => current + points);
+    addLog(`${choice.log}${points ? ` +${points} points.` : ""}`);
+    audio.current?.arrive();
+    firePulse("arrive");
+    shake();
+    tellVesta(
+      byCaptain
+        ? `The captain chose "${choice.label}". ${choice.log} React in one line as it plays out.`
+        : `No orders came, so you took the cautious option yourself: "${choice.label}". ${choice.log} Say so in one line.`,
+      Priority.Urgent,
+    );
+    const ok = await steer(choice.outcome);
+    if (world.current !== pending.world) return;
+    if (ok) setHere((current) => ({ ...current, view: choice.outcome, generated: true }));
+    sceneLock.current = "free";
+  };
+
+  // The decision clock: hesitate and VESTA takes the cautious option.
+  const resolveRef = useRef(resolve);
+  resolveRef.current = resolve;
+  useEffect(() => {
+    if (!emergency) return;
+    const timer = window.setTimeout(
+      () => void resolveRef.current(0, false),
+      Math.max(0, emergency.deadline - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [emergency]);
 
   // ---- Launch, optionally straight into a destination.
   // The click is the gesture browsers need before sound, so all audio
@@ -536,9 +630,12 @@ function Cockpit({
     setVisited([]);
     setPostcards([]);
     setShowReel(false);
-    setMission(MISSIONS[Math.floor(Math.random() * MISSIONS.length)]);
+    const briefing = MISSIONS[Math.floor(Math.random() * MISSIONS.length)];
+    setMission(briefing);
     setMissionStage(1);
     setMissionDone(false);
+    setScore(0);
+    setDetonation("none");
     setPhase("launching");
     setTarget(into === ORIGIN ? null : into);
     addLog(into === ORIGIN ? "Ignition…" : `Ignition. Plotting straight for ${into.name}…`);
@@ -557,6 +654,10 @@ function Cockpit({
     });
     copilot.current = vesta;
     vesta.setVolume(vestaLevel);
+    // Queued until she's connected, then read while the drive spools up.
+    vesta.update(
+      `Pre-flight briefing, blast shield closed. Greet the captain and the room, then read our mission "${briefing.title}": ${briefing.goal} End by saying the drive is spooling up.`,
+    );
     vesta.connect().catch((caught: unknown) => {
       addLog(`VESTA offline: ${caught instanceof Error ? caught.message : String(caught)}`);
     });
@@ -599,8 +700,10 @@ function Cockpit({
         lastScene.current = sceneOf(into);
         await waitUntilSeen(into.view, () => voyage.current === flight);
         if (voyage.current !== flight) return;
-        firePulse("arrive");
-        arrive(into, "launch");
+        // The world is live behind the shield. Wait for the captain.
+        setPhase("briefing");
+        addLog("Drive ready. Press ENGAGE.");
+        tellVesta("The drive is ready and the world is live behind the shield. Tell the captain to press ENGAGE.", Priority.Low);
       } else {
         sceneLock.current = "free";
         setPhase("docked");
@@ -614,7 +717,7 @@ function Cockpit({
 
   // ---- The flight ends when the session does (dock, error, or 5:00).
   useEffect(() => {
-    if ((phase === "flying" || phase === "jumping") && !session.connected && !previewing.current) {
+    if ((phase === "flying" || phase === "jumping" || phase === "briefing") && !session.connected && !previewing.current) {
       voyage.current += 1;
       world.current += 1;
       sceneLock.current = "free";
@@ -623,6 +726,9 @@ function Cockpit({
       setScanned(null);
       setAlert(null);
       setPlotting(false);
+      setDetonation("none");
+      setShieldOpening(false);
+      setEmergency(null);
       setPhase("docked");
       addLog("Flight ended. Pick a destination to fly again.");
       window.setTimeout(() => setShowReel(true), 4_000);
@@ -639,6 +745,87 @@ function Cockpit({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, session.connected]);
 
+  // ---- ENGAGE: open the blast shield onto the world that is already live.
+  const engage = () => {
+    if (phase !== "briefing") return;
+    setShieldOpening(true);
+    audio.current?.arrive();
+    firePulse("arrive");
+    shake();
+    window.setTimeout(() => {
+      setShieldOpening(false);
+      arrive(opening.current, "launch");
+    }, 1_400);
+  };
+
+  /** During the briefing: swap to the next mission (VESTA re-reads it). */
+  const nextMission = () => {
+    if (phase !== "launching" && phase !== "briefing") return;
+    const index = MISSIONS.findIndex((item) => item.id === mission.id);
+    const next = MISSIONS[(index + 1) % MISSIONS.length];
+    setMission(next);
+    tellVesta(`Mission changed. Read the new mission "${next.title}": ${next.goal}`, Priority.Urgent);
+  };
+
+  // ---- The Impactor finale: plant the charge, full reverse, boom.
+  const plantCharge = async () => {
+    if (detonation !== "arrived") return;
+    const thisWorld = world.current;
+    sceneLock.current = "event";
+    setDetonation("planted");
+    setAlert("Charge armed");
+    audio.current?.alert();
+    addLog("Charge planted on the asteroid. Armed.");
+    tellVesta("Charge planted and armed. Tell the captain to hit FULL REVERSE now.", Priority.Urgent);
+    await steer(IMPACTOR.charge);
+    if (world.current !== thisWorld) sceneLock.current = "free";
+  };
+
+  const fullReverse = () => {
+    if (detonation !== "planted") return;
+    const thisWorld = world.current;
+    const flight = voyage.current;
+    setHelm({ throttle: "reverse", bank: 0 });
+    audio.current?.setThrottle(THROTTLES.indexOf("reverse"));
+    setDetonation("countdown");
+    setAlert(null);
+    addLog("Full reverse. Detonation in 10.");
+    tellVesta("Full reverse, the charge is counting down from ten. Keep it tense and short.", Priority.Urgent);
+    void session.steerTo(composePrompt(IMPACTOR.retreat, { throttle: "reverse", bank: 0 }));
+    // Orbis shows a prompt 6–10 s late, so the blast goes out early enough to
+    // land with the countdown's zero.
+    window.setTimeout(() => {
+      if (world.current !== thisWorld) return;
+      lastScene.current = IMPACTOR.blast;
+      void session.steerTo(composePrompt(IMPACTOR.blast, { throttle: "reverse", bank: 0 }));
+    }, 2_500);
+    let remainingCount = IMPACTOR.countdown;
+    setCountdown(remainingCount);
+    const timer = window.setInterval(() => {
+      if (world.current !== thisWorld || voyage.current !== flight) {
+        window.clearInterval(timer);
+        return;
+      }
+      remainingCount -= 1;
+      setCountdown(remainingCount);
+      if (remainingCount > 0) return;
+      window.clearInterval(timer);
+      audio.current?.explode();
+      setFlash((current) => current + 1);
+      shake();
+      setDetonation("done");
+      setMissionDone(true);
+      setScore((current) => current + POINTS.earthSaved);
+      setAlert(`Earth saved · +${POINTS.earthSaved}`);
+      addLog(`Asteroid destroyed. Earth saved. +${POINTS.earthSaved} points.`);
+      tellVesta("The asteroid is destroyed and Earth is saved. Celebrate with the captain in two short sentences.", Priority.Urgent);
+      sceneLock.current = "free";
+      window.setTimeout(() => {
+        if (world.current === thisWorld) setAlert(null);
+      }, 8_000);
+    }, 1_000);
+  };
+
   // ---- A jump: teleport effect, stars stretch, destination, arrival.
   const jump = async (dest: Destination) => {
     if (phase !== "flying") return;
@@ -647,6 +834,8 @@ function Cockpit({
 
     world.current += 1; // cancels this world's pending scan and event
     sceneLock.current = "jump";
+    setEmergency(null);
+    setDetonation((current) => (current === "done" ? "done" : "none"));
     clearEventTimer();
     setPhase("jumping");
     setTarget(dest);
@@ -748,8 +937,39 @@ function Cockpit({
   };
   // Dev only: F previews the flying layout, R the captain's log, without
   // Orbis. (Jumps from the preview fail safely: there is no session.)
-  const previewLayout = async (what: "flying" | "reel") => {
+  const previewLayout = async (what: "flying" | "reel" | "briefing" | "detonate" | "emergency") => {
     if (process.env.NODE_ENV !== "development") return;
+    if (what === "emergency") {
+      previewing.current = true;
+      setPhase("flying");
+      setAlert("Grid overload detected");
+      setEmergency({
+        world: world.current,
+        deadline: Date.now() + DECIDE_SECONDS * 1_000,
+        event: {
+          title: "Grid overload detected",
+          view: "",
+          log: "",
+          choices: [
+            { label: "Raise shields", outcome: "", log: "Shields absorbed the shockwave.", points: 150 },
+            { label: "Ride the surge", outcome: "", log: "Siphoned the surge into the warp capacitors.", points: 320 },
+          ],
+        },
+      });
+      return;
+    }
+    if (what === "briefing") {
+      previewing.current = true;
+      setMission(MISSIONS[0]);
+      setPhase("briefing");
+      return;
+    }
+    if (what === "detonate") {
+      previewing.current = true;
+      setPhase("flying");
+      setDetonation((current) => (current === "arrived" ? "planted" : "arrived"));
+      return;
+    }
     if (what === "flying") {
       previewing.current = true;
       setPhase("flying");
@@ -776,8 +996,11 @@ function Cockpit({
     setShowReel(true);
   };
 
-  const keys = useRef({ press, launch, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout });
-  keys.current = { press, launch, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout };
+  const decide = (index: 0 | 1) => {
+    if (emergency) void resolve(index, true);
+  };
+  const keys = useRef({ decide, press, launch, engage, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout });
+  keys.current = { decide, press, launch, engage, rehearse, rehearseVesta, keyList, phase, setThrottle, bank, previewLayout };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement | null)?.tagName === "INPUT") {
@@ -798,11 +1021,19 @@ function Cockpit({
         event.preventDefault();
         setPlotting(true);
       } else if (key === "l" && current.phase === "docked") current.launch();
+      else if ((key === "enter" || key === "l") && current.phase === "briefing") current.engage();
       else if (key === "j") current.rehearse("jump");
       else if (key === "a") current.rehearse("arrive");
       else if (key === "v") void current.rehearseVesta();
       else if (key === "f") void current.previewLayout("flying");
+      else if (key === "q") current.decide(0);
+      else if (key === "e") current.decide(1);
+      else if (key === "h") setHelmOpen((open) => !open);
+      else if (key === "m") setMissionOpen((open) => !open);
       else if (key === "r") void current.previewLayout("reel");
+      else if (key === "b") void current.previewLayout("briefing");
+      else if (key === "d") void current.previewLayout("detonate");
+      else if (key === "x") void current.previewLayout("emergency");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -814,6 +1045,7 @@ function Cockpit({
 
   return (
     <div className="sw">
+      <AmbientGlow />
       <div className="sw-stage" ref={stage}>
         <div className="sw-world">
           {session.runStarted ? (
@@ -831,6 +1063,85 @@ function Cockpit({
         <WarpCanvas pulse={pulse} />
         <div className="sw-glass" aria-hidden />
 
+        {flash > 0 && <div key={flash} className="sw-flash" aria-hidden />}
+
+        {(phase === "launching" || phase === "briefing" || shieldOpening) && (
+          <div className={`sw-shield ${shieldOpening ? "is-opening" : ""}`}>
+            <div className="sw-shield-door sw-shield-top" aria-hidden />
+            <div className="sw-shield-door sw-shield-bottom" aria-hidden />
+            {(
+              <div className={`sw-briefing ${shieldOpening ? "is-stowing" : ""}`}>
+                <span className="sw-label">Mission briefing</span>
+                <h2>{mission.title}</h2>
+                <p>{mission.goal}</p>
+                {opening.current !== ORIGIN && (
+                  <p className="sw-briefing-first">First stop: {opening.current.name}, {opening.current.era}</p>
+                )}
+                <div className="sw-briefing-actions">
+                  <button
+                    type="button"
+                    className="sw-engage"
+                    disabled={phase !== "briefing"}
+                    onClick={engage}
+                  >
+                    {phase === "briefing" ? "Engage" : "Spooling up the drive…"}
+                  </button>
+                  <button type="button" className="sw-briefing-next" onClick={nextMission}>
+                    Next mission ▸
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {emergency?.event.choices && (
+          <div className="sw-decision" role="group" aria-label={emergency.event.title}>
+            <span className="sw-decision-title">{emergency.event.title}</span>
+            <div className="sw-decision-buttons">
+              {emergency.event.choices.map((choice, index) => (
+                <button
+                  key={choice.label}
+                  type="button"
+                  className={`sw-decision-button ${index === 1 ? "is-bold" : ""}`}
+                  onClick={() => void resolve(index as 0 | 1, true)}
+                >
+                  <kbd>{index === 0 ? "Q" : "E"}</kbd>
+                  {choice.label}
+                  <small>+{choice.points}</small>
+                </button>
+              ))}
+            </div>
+            <span
+              key={emergency.deadline}
+              className="sw-decision-timer"
+              style={{ animationDuration: `${DECIDE_SECONDS}s` }}
+              aria-hidden
+            />
+          </div>
+        )}
+
+        {detonation !== "none" && detonation !== "done" && (
+          <div className="sw-detonate">
+            {detonation === "arrived" && (
+              <button type="button" className="sw-detonate-button" onClick={() => void plantCharge()}>
+                Plant charge
+              </button>
+            )}
+            {detonation === "planted" && (
+              <button type="button" className="sw-detonate-button is-reverse" onClick={fullReverse}>
+                Full reverse!
+              </button>
+            )}
+            {detonation === "countdown" && (
+              <div className="sw-countdown" aria-live="assertive">
+                <span>Detonation in</span>
+                <strong key={countdown}>{countdown}</strong>
+              </div>
+            )}
+          </div>
+        )}
+
         {alert && (
           <div className="sw-alert" role="alert">
             <span>Alert</span>
@@ -838,7 +1149,7 @@ function Cockpit({
           </div>
         )}
 
-        {flying && !plotting && scanned && scanned.length > 0 && (
+        {flying && !plotting && scanned && scanned.length > 0 && (detonation === "none" || detonation === "done") && !emergency && (
           <div className="sw-choices" key={scanned[0].id}>
             {scanned.map((dest, index) => (
               <button
@@ -887,7 +1198,12 @@ function Cockpit({
 
             {/* Centre screen: launch, log, plot */}
             <div className="sw-screen sw-screen-center">
-              {docked ? (
+              {phase === "briefing" ? (
+                <button type="button" className="sw-launch is-engage" onClick={engage}>
+                  Engage
+                  <small>open the blast shield</small>
+                </button>
+              ) : docked ? (
                 <button type="button" className="sw-launch" onClick={() => launch()}>
                   Launch
                   <small>or pick a destination · 5-min flight</small>
@@ -972,8 +1288,14 @@ function Cockpit({
         </div>
 
         {!docked && (
-          <div className="sw-helm" aria-label="Helm">
-            <span className="sw-label">Helm</span>
+          <HoloPanel
+            className="sw-helm"
+            title="Helm"
+            hotkey="H"
+            summary={`${helm.throttle}${helm.bank ? (helm.bank < 0 ? " · ◀" : " · ▶") : ""}`}
+            open={helmOpen}
+            onToggle={() => setHelmOpen((open) => !open)}
+          >
             <div className="sw-throttle">
               <button type="button" aria-label="Throttle up" onClick={() => setThrottle(1)}>
                 ▲
@@ -1006,25 +1328,38 @@ function Cockpit({
               </button>
             </div>
             <span className="sw-hint">↑↓ throttle · ←→ bank</span>
-          </div>
+          </HoloPanel>
         )}
 
         {!docked && (
-          <div className={`sw-mission ${missionDone ? "is-done" : ""}`}>
-            <span className="sw-label">Mission</span>
+          <HoloPanel
+            className={`sw-mission ${missionDone ? "is-done" : ""}`}
+            title="Mission"
+            hotkey="M"
+            summary={
+              <span className="sw-mission-summary">
+                {mission.title}
+                <span className="sw-pips" aria-label={`Stage ${missionStage} of ${MISSION_STAGES}`}>
+                  {Array.from({ length: MISSION_STAGES }, (_, index) => (
+                    <i
+                      key={index}
+                      className={
+                        index < (missionDone ? MISSION_STAGES : missionStage - 1) ? "is-on" : ""
+                      }
+                    />
+                  ))}
+                </span>
+              </span>
+            }
+            open={missionOpen}
+            onToggle={() => setMissionOpen((open) => !open)}
+          >
             <strong>{mission.title}</strong>
-            <div className="sw-pips" aria-label={`Stage ${missionStage} of ${MISSION_STAGES}`}>
-              {Array.from({ length: MISSION_STAGES }, (_, index) => (
-                <i
-                  key={index}
-                  className={
-                    index < (missionDone ? MISSION_STAGES : missionStage - 1) ? "is-on" : ""
-                  }
-                />
-              ))}
-            </div>
             <p>{missionDone ? "Complete. Explore freely." : mission.goal}</p>
-          </div>
+            <span className="sw-score">
+              Score <strong key={score}>{score.toLocaleString()}</strong>
+            </span>
+          </HoloPanel>
         )}
       </div>
 
@@ -1036,6 +1371,7 @@ function Cockpit({
               {mission.title}
               {missionDone ? " · mission complete" : ""}
             </h2>
+            <span className="sw-reel-score">Score {score.toLocaleString()}</span>
           </header>
           <div className="sw-reel-grid">
             {postcards.map((card, index) => (
@@ -1089,6 +1425,68 @@ function Cockpit({
       </nav>
     </div>
   );
+}
+
+/**
+ * A holographic HUD panel that collapses to a slim tab. Opening it unfolds
+ * the body with a scan-line sweep and staggered line reveal (see .holo CSS).
+ */
+function HoloPanel({
+  className,
+  title,
+  summary,
+  hotkey,
+  open,
+  onToggle,
+  children,
+}: {
+  className: string;
+  title: string;
+  summary: ReactNode;
+  hotkey: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`holo ${className} ${open ? "is-open" : ""}`}>
+      <button type="button" className="holo-tab" aria-expanded={open} onClick={onToggle}>
+        <span className="holo-title">{title}</span>
+        <span className="holo-summary">{summary}</span>
+        <kbd className="holo-key">{hotkey}</kbd>
+      </button>
+      <div className="holo-body" aria-hidden={!open}>
+        <div className="holo-inner">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * On wide screens the cockpit doesn't reach the edges. Instead of dead bands,
+ * the world outside bleeds into the room: a tiny, heavily blurred copy of the
+ * live video fills the background (cheap: 48×27 pixels, ~10 fps).
+ */
+function AmbientGlow() {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const element = canvas.current;
+    const context = element?.getContext("2d");
+    if (!element || !context) return;
+    element.width = 48;
+    element.height = 27;
+    const timer = window.setInterval(() => {
+      const video = document.querySelector<HTMLVideoElement>(".sw-world video");
+      if (video && video.readyState >= 2) {
+        context.drawImage(video, 0, 0, element.width, element.height);
+        element.classList.add("is-live");
+      } else {
+        element.classList.remove("is-live");
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <canvas className="sw-ambient" ref={canvas} aria-hidden />;
 }
 
 function Fader({

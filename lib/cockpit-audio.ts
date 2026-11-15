@@ -175,6 +175,31 @@ export class CockpitAudio {
     }
   }
 
+  /** Detonation: a noise blast through a closing filter over a sub drop. */
+  explode() {
+    const context = this.context;
+    const now = context.currentTime;
+
+    const blast = context.createBufferSource();
+    blast.buffer = this.whiteNoise(3);
+    const filter = context.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(5000, now);
+    filter.frequency.exponentialRampToValueAtTime(120, now + 2.6);
+    const blastGain = this.envelope(now, 0.0001, 0.9, 0.02, 2.8);
+    blast.connect(filter).connect(blastGain).connect(this.master);
+    blast.start(now);
+
+    const sub = context.createOscillator();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(90, now);
+    sub.frequency.exponentialRampToValueAtTime(24, now + 2.2);
+    const subGain = this.envelope(now, 0.0001, 0.8, 0.03, 2.4);
+    sub.connect(subGain).connect(this.master);
+    sub.start(now);
+    sub.stop(now + 2.6);
+  }
+
   /** Arrival: a deep drop with a short sparkle tail. */
   arrive() {
     const context = this.context;
