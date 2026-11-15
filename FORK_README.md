@@ -1,93 +1,84 @@
 # Orbis fork: features and architecture
 
-This document describes the product and implementation added to this fork of
-the Visko Orbis hackathon starter, plus the current hand interaction and
-opening-sketch refinements. The original starter demonstrates a server-minted
-Reactor token and a browser connection to Orbis Stable. This fork builds camera,
-look-design, and live-production workflows around that session.
+This document describes the work in this fork of the Visko Orbis hackathon
+starter. The main project is **Live Studio**: sketch on camera, speak a
+description, and steer an Orbis video with the resulting transcription and
+hand gestures.
 
-## What this fork adds
+The `/camera` and `/looks` areas are useful supporting experiments, but they
+are incomplete half-projects. Keep them only if they support the Live Studio
+direction; they can be removed if the goal is a focused, polished product.
 
-### Camera Studio
+## Main project: Live Studio
 
-`/camera` provides a local camera canvas with pointer drawing and tracked
-drawing. The browser runs bundled MediaPipe face, hand, and body models in
-workers. Camera tracking and drawing remain in the browser. Ink can follow face
-features, shoulders, body joints, or tracked 3D head and garment surfaces.
-Recent changes split hand gesture and drawing logic into focused modules,
-separate hand tracking from body tracking, and improve how long tracking
-anchors remain usable through brief detection gaps.
+Open `/live` to combine a camera, a sketch canvas, voice input, and an Orbis
+render. Start the camera, enable the microphone, capture or choose a starting
+image, then start generation. Live Studio also provides a render-only popup for
+OBS.
 
-The studio can capture a camera frame, save front/profile/back head references,
-record a head orbit for local Gaussian splat training, and build a local
-wardrobe of generated pieces. Headwear can be fitted to a head scan; generated
-pieces can be anchored to head, torso, or hands and previewed over the live
-camera. A render-only popup can be selected as an OBS window source.
+### The core interaction: sketch, transcribe, steer
 
-### Looks
+1. **Draw a mark.** Draw with the pointer or pinch your thumb to all four
+   fingertips. Each mark becomes its own layer with its own screen position.
+2. **Describe it.** Speak while drawing or use the fist gesture to record a
+   separate scene edit. The app transcribes the audio and associates the words
+   with the right mark, so “bubbles here” stays connected to the circle drawn
+   on screen.
+3. **Interpret the sketch.** The app sends the camera frame, aligned sketch,
+   transcript, and previous effects to a server route. Gemini turns them into
+   concise visual direction and identifies effects to remove. Before the first
+   Orbis frame, Live Studio prepares the opening sketch; during a take, new
+   sketches and transcripts update the current direction.
+4. **Steer Orbis.** The browser sends that direction through the Reactor SDK
+   as an Orbis prompt update. Orbis applies changes at generation chunk
+   boundaries, so steering is approximate rather than frame-by-frame.
 
-`/looks` lets a user describe garments, draw or import a reference outline,
-prepare and edit image prompts, and generate candidate images. Garments are
-kept as separate layers so a layer can be replaced or reordered. A prepared
-look can be animated in Looks or sent to Live Studio. Look drafts are held in
-the current browser tab and are not a server-side account library.
+Optional Gemini-generated cutouts can replace drawn strokes and follow the
+subject in the camera view, Orbis render, and OBS output. With Drive Orbis on,
+locally tracked body and face movement can also contribute prompt updates.
 
-Gemini handles image generation, prompt preparation, planning questions, and
-audio transcription. Gemini Live is used for interactive voice planning and
-steering through short-lived tokens minted by the server.
+### Hand gestures
 
-### Live Studio
+The camera worker returns hand landmarks. `hand-gesture.ts` recognizes a
+four-finger pinch with a small release tolerance, so bringing the four
+fingertips to the thumb starts drawing and separating them finishes the mark.
+When no sketch is active, a held fist starts microphone capture; opening the
+hand ends capture and starts transcription. Briefly missed camera frames are
+smoothed so they do not fragment a stroke or trigger an unintended gesture.
 
-`/live` combines camera capture, drawing, an Orbis stream, prompt steering, and
-an OBS output window. Its setup guide walks through camera, controls,
-microphone, starting image, and generation. A prepared image from Looks, an
-uploaded image, or a camera capture can supply the opening frame.
+### Supporting experiments: `/camera` and `/looks`
 
-Live sketches associate each drawn mark with its transcript and screen bounds.
-They can be submitted as a group to describe a scene effect and where it
-belongs. The opening-sketch flow prepares that direction before Orbis starts;
-later sketches steer the active take. Optional generated sketch cutouts can
-replace strokes and follow the subject across the camera preview, Orbis render,
-and OBS output.
-
-Hand input uses a four-finger pinch (all four fingertips gathered to the
-thumb) to draw, and a fist to trigger speech capture when drawing is inactive.
-The microphone transcript is linked to the relevant sketch or used as a scene
-edit. Audio transcription is bounded by request limits and a timeout, and
-accepts common browser recording formats.
-
-Drive Orbis uses locally tracked face and body landmarks to turn movement into
-short prompt updates. Orbis applies prompt steering at generation chunk
-boundaries, so movement is translated into approximate actions rather than
-direct frame-by-frame control.
+These are broader experiments, not the center of the fork. `/camera` includes
+tracked drawing, head/garment surfaces, wardrobe accessories, head references,
+and a local head-scan workflow. `/looks` experiments with garment layers,
+reference sketches, image generation, prompt planning, and voice. Both can
+provide a starting image or ideas for Live Studio, but neither is required for
+the main sketch-and-steer flow. They are candidates for removal if reducing
+scope is more important than preserving those experiments.
 
 ## How the pieces work together
 
-1. The browser requests a scoped Reactor session token from `/api/token`; the
-   API key remains server-side. `use-orbis-session.ts` connects through the
-   Reactor SDK and sends image, prompt, resolution, start, pause, resume, reset,
-   and steering commands.
-2. Camera and hand tracking run in `public/camera-tracker.js` using locally
-   served MediaPipe assets. `lib/camera/tracking.ts` coordinates workers,
-   gesture recognition, drawing, and tracking results. Camera images are
-   captured/composited in the browser before a selected image is sent to the
-   generation APIs.
-3. `use-pinch-layers.ts` collects gesture-driven strokes and speech; the
-   drawing and audio modules keep the transcript associated with its stroke.
-   `use-live-sketch.ts` packages the opening or live edits and calls
-   `/api/live-sketch`, which validates bounded inputs and asks Gemini for
-   concise scene direction.
-4. Look, accessory, image, prompt, and transcription endpoints live under
-   `app/api`. They validate request inputs and call Gemini from the server.
-   Browser code talks to these same-origin routes and never receives the
-   Gemini API key.
-5. Orbis renders the generated video and audio in the browser. Live Studio can
-   mirror that render into a dedicated popup window for capture software.
+1. `use-pinch-layers.ts` records strokes and speech state. `hand-drawing.ts`
+   turns recognized pinches into ink events and fist holds into audio capture
+   events.
+2. `pinch-audio.ts` and `live-audio.ts` record audio; `/api/looks/transcribe`
+   validates and transcribes clips. Transcript text and stroke bounds are
+   retained together as sketch-layer context.
+3. `use-live-sketch.ts` captures an aligned camera frame and sketch, then calls
+   `/api/live-sketch`. The route validates bounded inputs and asks Gemini to
+   describe the requested effects and any removals.
+4. `use-orbis-session.ts` connects through the Reactor SDK using a scoped token
+   from `/api/token`. It starts the scene and sends later prompt updates to
+   steer the render.
+5. Camera and hand landmarks are processed locally by
+   `public/camera-tracker.js` and coordinated in `lib/camera/tracking.ts`.
+   Server-side routes hold the Gemini and Reactor credentials; the browser
+   receives only the scoped session token and workflow results.
 
-The principal entry points are `app/camera/page.tsx`, `app/looks/page.tsx`,
-and `app/live/page.tsx`. Their feature UI is organized under `components/`,
-reusable state and interactions under `hooks/`, camera/looks logic under
-`lib/`, and server routes under `app/api/`.
+The main entry point is `app/live/page.tsx`. Supporting experiments start at
+`app/camera/page.tsx` and `app/looks/page.tsx`. UI is organized under
+`components/`, reusable state and interactions under `hooks/`, and core logic
+under `lib/`; server routes live under `app/api/`.
 
 ## Run locally
 
@@ -107,9 +98,8 @@ server environment. Camera routes require browser camera permission and work
 best in a browser with WebRTC, WebGL 2, and worker support. Camera assets are
 served locally from `public/camera-models` and `app/camera/wasm`.
 
-Useful pages are `/camera`, `/looks`, and `/live`. The optional local head-scan
-training workflow uses FFmpeg, COLMAP, and Brush; see the head-scan section in
-the root README for its command and workflow.
+Open `/live` for the primary project. The optional `/camera` head-scan
+experiment uses FFmpeg, COLMAP, and Brush; see the root README for its command.
 
 ## Fork-specific changes in this update
 
@@ -128,8 +118,5 @@ the root README for its command and workflow.
 - Updated camera and Live Studio guidance to explain the revised gestures and
   opening sketch workflow.
 
-The fork also contains earlier product work in the commits based on the
-upstream starter: Camera Studio and its local tracking/wardrobe tools, Looks
-and its image/voice workflows, Live Studio and OBS output, and prompt/session
-integration. The root `README.md` retains the end-user walkthrough for those
-features.
+The root `README.md` retains detailed setup and workflow instructions,
+including the supporting Camera Studio and Looks experiments.
