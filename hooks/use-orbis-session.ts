@@ -8,6 +8,11 @@ import {
   type OrbisMessage,
   unwrapOrbisMessage,
 } from "@/lib/orbis";
+import {
+  MIN_PROMPT_GAP_MS,
+  recordSessionStart,
+  sessionStartDelay,
+} from "@/lib/orbis-limits";
 
 export function useOrbisSession(
   clearJwt: () => void,
@@ -39,6 +44,10 @@ export function useOrbisSession(
   const [events, setEvents] = useState<string[]>([]);
 
   const previousStatus = useRef(status);
+  // For spacing out steering prompts.
+  const lastPromptAt = useRef(0);
+  const lastPromptText = useRef("");
+  const pendingPrompt = useRef<string | null>(null);
   const disconnecting = useRef(false);
   const conditionsReadyResolver = useRef<(() => void) | null>(null);
   const imageReadyResolver = useRef<(() => void) | null>(null);
@@ -55,6 +64,8 @@ export function useOrbisSession(
       setRunStarted(false);
       setPaused(false);
       setImageStatus("");
+      pendingPrompt.current = null;
+      lastPromptText.current = "";
     }
     previousStatus.current = status;
   }, [status]);
@@ -278,25 +289,37 @@ export function useOrbisSession(
 
     if (resolution) await sendCommand("set_resolution", { resolution });
 
-    const conditionsReady = waitForSignal(
-      conditionsReadyResolver,
-      "conditions_ready",
-    );
-    const promptReply = await sendCommand("set_prompt", {
-      prompt: runPrompt.trim(),
-    });
-    if (!promptReply) {
-      conditionsReady.cancel();
-      throw new Error("Orbis did not accept the prompt.");
-    }
+    // Orbis commands are asynchronous and its events are the source of
+    // truth: the SDK may hand back no reply at all for a command that was
+    // accepted. So send the prompt, fail only on an explicit rejection, and
+    // wait for the conditions_ready event. Now and then Orbis neither
+    // replies nor signals; send the prompt one more time before giving up.
+    const sendPromptAndWait = async () => {
+      const conditionsReady = waitForSignal(
+        conditionsReadyResolver,
+        "conditions_ready",
+      );
+      const promptReply = await sendCommand("set_prompt", {
+        prompt: runPrompt.trim(),
+      });
+      if (promptReply) {
+        const promptMessage = unwrapOrbisMessage(promptReply);
+        if (promptMessage.type === "command_error") {
+          conditionsReady.cancel();
+          throw new Error(`set_prompt: ${promptMessage.reason || "rejected"}`);
+        }
+      }
+      return conditionsReady.promise.then(
+        () => true,
+        () => false,
+      );
+    };
 
-    const promptMessage = unwrapOrbisMessage(promptReply);
-    if (promptMessage.type === "command_error") {
-      conditionsReady.cancel();
-      throw new Error(`set_prompt: ${promptMessage.reason || "rejected"}`);
+    if (!(await sendPromptAndWait()) && !(await sendPromptAndWait())) {
+      throw new Error(
+        "Orbis did not get ready after the prompt was sent twice. Begin the scene again.",
+      );
     }
-
-    await conditionsReady.promise;
     setEvents((current) => ["conditions_ready", ...current].slice(0, 8));
     await sendCommand("start", {});
     setRunStarted(true);
@@ -316,7 +339,8 @@ export function useOrbisSession(
   ) => {
     setImage(editedImage);
     setPrompt(groundedPrompt);
-    await runAction(() => startGeneration(editedImage, groundedPrompt));
+    // True when the run started.
+    return runAction(() => startGeneration(editedImage, groundedPrompt));
   };
 
   const steer = () =>
@@ -370,9 +394,28 @@ export function useOrbisSession(
     availableResolutions,
     error,
     events,
-    connectSession: () => runAction(() => connect()),
+    connectSession: () =>
+      runAction(async () => {
+        // Stay inside Reactor's session limits. A short wait is absorbed;
+        // a long one is reported instead of silently hanging.
+        const wait = sessionStartDelay();
+        if (wait > 10_000) {
+          throw new Error(
+            `Too many scenes started in the last minute. Wait ${Math.ceil(wait / 1_000)} seconds and begin again.`,
+          );
+        }
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        recordSessionStart();
+
+        // Each token allows one session. A session that ended on its own
+        // (the 5-minute cap, a dropped connection) never went through
+        // disconnectSession, so drop its spent token and mint a fresh one.
+        clearJwt();
+        await connect();
+      }),
     disconnectSession,
     toggleMuted: () => setMuted((current) => !current),
+    unmute: () => setMuted(false),
     setPrompt,
     selectImage,
     setResolution,
@@ -380,6 +423,39 @@ export function useOrbisSession(
     startFromNanoOutput,
     setNanoBusy,
     steer,
+    // Fire-and-forget steering for continuous inputs such as hand tracking.
+    // Unlike steer(), it does not mark the controls busy on every send.
+    // Prompts are spaced at least MIN_PROMPT_GAP_MS apart. One that arrives
+    // sooner waits its turn, and only the newest waiting prompt is kept,
+    // since each prompt replaces the last anyway.
+    sendSteer: (steerPrompt: string) => {
+      const send = (text: string) => {
+        // Re-sending the prompt Orbis is already following does nothing
+        // useful and is one more request.
+        if (text === lastPromptText.current) return;
+        lastPromptText.current = text;
+        lastPromptAt.current = Date.now();
+        sendCommand("set_prompt", { prompt: text }).catch((caught) =>
+          setError(caught instanceof Error ? caught.message : String(caught)),
+        );
+      };
+      const wait = lastPromptAt.current + MIN_PROMPT_GAP_MS - Date.now();
+      if (wait <= 0 && !pendingPrompt.current) {
+        send(steerPrompt);
+        return;
+      }
+      const alreadyWaiting = pendingPrompt.current !== null;
+      pendingPrompt.current = steerPrompt;
+      if (alreadyWaiting) return;
+      setTimeout(
+        () => {
+          const text = pendingPrompt.current;
+          pendingPrompt.current = null;
+          if (text) send(text);
+        },
+        Math.max(0, wait),
+      );
+    },
     pause: () => runAction(() => sendCommand("pause", {})),
     resume: () => runAction(() => sendCommand("resume", {})),
     reset: () => runAction(() => sendCommand("reset", {})),

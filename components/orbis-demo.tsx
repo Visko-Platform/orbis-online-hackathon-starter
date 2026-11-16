@@ -1,61 +1,25 @@
 "use client";
 
-import { ReactorProvider } from "@reactor-team/js-sdk";
-import { useCallback, useRef } from "react";
+import { useState } from "react";
 
 import { NanoBananaExample } from "@/components/nano-banana-example";
 import { OrbisControls } from "@/components/orbis-controls";
 import { OrbisPlayer } from "@/components/orbis-player";
-import { useOrbisSession } from "@/hooks/use-orbis-session";
-import { ORBIS_MODEL_NAME, ORBIS_TRACKS, requestReactorJwt } from "@/lib/orbis";
+import { OrbisShell } from "@/components/orbis-shell";
+import { SceneHud } from "@/components/scene-hud";
+import type { OrbisSession as OrbisSessionState } from "@/hooks/use-orbis-session";
 
 export function OrbisDemo() {
-  const jwtPromise = useRef<Promise<string> | null>(null);
-  const currentJwt = useRef<string | null>(null);
-  const getJwt = useCallback(async () => {
-    const pending = (jwtPromise.current ??= requestReactorJwt());
-    try {
-      const jwt = await pending;
-      currentJwt.current = jwt;
-      return jwt;
-    } catch (error) {
-      // Do not permanently cache a failed token request.
-      if (jwtPromise.current === pending) jwtPromise.current = null;
-      throw error;
-    }
-  }, []);
-  const getCurrentJwt = useCallback(() => currentJwt.current, []);
-  const clearJwt = useCallback(() => {
-    jwtPromise.current = null;
-    currentJwt.current = null;
-  }, []);
-
   return (
     <section className="demo-shell">
-      <ReactorProvider
-        apiUrl="https://api.reactor.inc"
-        modelName={ORBIS_MODEL_NAME}
-        modelTracks={[...ORBIS_TRACKS]}
-        connectOptions={{ autoConnect: false }}
-        jwtToken={getJwt}
-      >
-        <OrbisSession
-          clearJwt={clearJwt}
-          getCurrentJwt={getCurrentJwt}
-        />
-      </ReactorProvider>
+      <OrbisShell>{(session) => <OrbisSession session={session} />}</OrbisShell>
     </section>
   );
 }
 
-function OrbisSession({
-  clearJwt,
-  getCurrentJwt,
-}: {
-  clearJwt: () => void;
-  getCurrentJwt: () => string | null;
-}) {
-  const session = useOrbisSession(clearJwt, getCurrentJwt);
+function OrbisSession({ session }: { session: OrbisSessionState }) {
+  // Who the HUD's directions refer to, e.g. "the red biplane".
+  const [subject, setSubject] = useState("");
 
   return (
     <>
@@ -63,11 +27,21 @@ function OrbisSession({
         <OrbisPlayer
           connected={session.connected}
           muted={session.muted}
+          paused={session.paused}
           runStarted={session.runStarted}
           status={session.status}
+        >
+          <SceneHud session={session} subject={subject} />
+        </OrbisPlayer>
+        <OrbisControls
+          session={session}
+          subject={subject}
+          onSubjectChange={setSubject}
         />
-        <OrbisControls session={session} />
       </div>
+
+      {/* Hand-gesture control (components/hand-flight-control.tsx) is
+          disabled for now; the HUD buttons direct the scene instead. */}
 
       <NanoBananaExample
         disabled={

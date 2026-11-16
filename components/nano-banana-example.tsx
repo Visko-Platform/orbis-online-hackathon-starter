@@ -9,7 +9,7 @@ import { NANO_BANANA_PROMPT, ORBIS_KICKOFF_PROMPT } from "@/lib/nano-banana";
 type NanoBananaExampleProps = {
   disabled: boolean;
   onActivityChange: (active: boolean) => void;
-  onReady: (image: File, prompt: string) => Promise<void>;
+  onReady: (image: File, prompt: string) => Promise<unknown>;
 };
 
 type PipelineStage = "idle" | "editing" | "analyzing" | "starting";
