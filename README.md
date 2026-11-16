@@ -1,20 +1,127 @@
-# Orbis hackathon starter!
+# VESTA Quantum Starship
 
-> **This fork adds _Starship Window_** at [`/window`](app/window): a cockpit
-> you fly through live Orbis worlds. See [Starship Window](#starship-window) below.
+**A cockpit you fly through live, AI-generated worlds.** Pick a destination
+on the console, open the blast shield, and the window becomes a real-time
+[Visko Orbis](https://github.com/Visko-Platform/orbis-online-hackathon-starter)
+video stream you steer as you go: across time, to other planets, into
+emergencies you have to talk or click your way out of, and home again to dock.
+
+Built for the Orbis online hackathon as a fork of the official starter; the
+original starter's examples and documentation are kept intact below.
+
+## What it does
+
+- **A live world outside the window.** Orbis Stable renders the view in real
+  time at 2K. A scene driver looks at the picture every few seconds and writes
+  the next beat of the shot, so the flight keeps moving forward instead of
+  looping.
+- **20 destinations and an endless map.** Charted worlds (Cretaceous Earth,
+  Europa, Venice at Carnival, a Dyson swarm…) have pre-rendered opening
+  frames; type any course into the plotter and an invented world is rendered
+  on the spot.
+- **An AI director.** Gemini plans each leg of the journey: the routes on
+  the console, unexpected events, and emergencies with two choices, all
+  shaped by the decisions you've already made.
+- **Missions.** Each flight draws a mission: *Impactor* (track an asteroid
+  back through time, plant a charge, full reverse before it blows), *The
+  Lantern Signal*, *The Last Seed* or *The Echo*.
+- **VESTA, your copilot.** A dry, slightly sarcastic voice on Gemini Live.
+  She sees the window (a frame a second), describes only what's actually on
+  screen, and takes spoken orders: *"take us to Alexandria"*, *"add a
+  thunderstorm"*, *"bank left"*. A status light shows her link.
+- **The wormhole.** Jumps go through a WebGL shader built from the last frame
+  of the world you're leaving: a dark, mirrored nebula tunnel ending in an
+  Interstellar-style lens that shows the destination, inverted, the moment
+  Orbis has it on screen.
+- **Docking.** Every flight ends with a last jump home, a slow glide into the
+  bay and the blast doors sealing shut.
+- **Sound.** A synthesized cockpit (engine hum tied to the throttle, jump and
+  arrival effects, alerts, door servos) plus per-world music prompted
+  through Orbis, with separate World and VESTA faders.
+
+## Run it
+
+```bash
+cp .env.example .env.local   # add both keys
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000/window>.
+
+| Key | Used for |
+| --- | --- |
+| `REACTOR_API_KEY` | Orbis sessions (server-side token minting) |
+| `GEMINI_API_KEY` | Director, scene driver, VESTA (Gemini Live), image renders |
+
+The Gemini project needs **billing enabled**: free-tier quotas run out
+within a single flight. Neither key ever reaches the browser; VESTA connects
+with short-lived Gemini tokens locked to her configuration.
+
+## Flying
+
+| Control | |
+| --- | --- |
+| Console keys | Launch to a charted world (docked) or jump (flying) |
+| **Space** (hold) | Talk to VESTA |
+| **↑ / ↓** | Throttle: drift, cruise, boost |
+| **← / →** | Bank |
+| **P** | Plot a course to anywhere |
+| **Q / E** | Pick the left / right choice in an emergency |
+| **C** | Jump style: *Cut* (restart on a pre-rendered frame) or *Morph* (steer the live shot) |
+| **G** | Window framing |
+| **H / M** | Show or hide the helm and mission panels |
+| **Z** | Presentation mode (hides the chrome) |
+| Hold **Dock** | Fly home and end the flight |
+
+Flights are capped at 10 minutes per Orbis session; the ship docks itself
+just before time runs out.
+
+## How it's built
+
+| Piece | Where |
+| --- | --- |
+| Cockpit, flight phases, jumps, docking | `components/starship-window.tsx`, `app/window/window.css` |
+| Worlds, missions, prompt composition | `lib/starship.ts` |
+| Wormhole shader | `components/cut-dissolve.tsx` |
+| Warp streaks | `components/warp-canvas.tsx` |
+| Cockpit audio (Web Audio, all synthesized) | `lib/cockpit-audio.ts` |
+| VESTA: Gemini Live client, persona, tools | `lib/copilot.ts`, `lib/copilot-config.ts` |
+| Director (routes, emergencies, missions) | `app/api/director/route.ts` |
+| Scene driver and vision checks | `app/api/scene/route.ts` |
+| Gemini Live token minting | `app/api/live-token/route.ts` |
+| Invented-world opening frames | `app/api/world-image/route.ts` |
+| Orbis session hook (start, steer, cut, music) | `hooks/use-orbis-session.ts` |
+| Pre-rendering the library's opening frames | `scripts/generate-openers.mjs`, `scripts/fit-16x9.py` |
+
+Some things we learned about Orbis along the way:
+
+- A new prompt shows up 6–10 seconds after it's sent, so the director and
+  scene driver plan ahead rather than react.
+- `set_image` only takes effect at the start of a run. A *Cut* jump resets
+  and restarts on the destination's frame; the wormhole hides the restart.
+- Orbis drifts into flying backwards unless every prompt says, at both ends,
+  that the camera moves forward.
+- Arrival is detected locally, by watching the video's pixels change, rather
+  than by asking a vision model, so the wormhole releases the instant the new
+  world appears.
+
+---
+
+## The original Orbis hackathon starter
 
 A minimal Next.js example for the public Reactor-hosted Visko Orbis Stable API.
 It demonstrates server-side token minting, WebRTC video and audio, text-to-video,
 optional image-to-video, live prompt steering, delivery resolution, pause,
 resume, and a foldable Nano Banana-to-Orbis livestreaming example.
 
-## Requirements
+### Requirements
 
 - Node.js 20.9 or newer
 - A Reactor API key with access to Visko Orbis Stable
 - A Google Gemini API key with access to Nano Banana
 
-## Run locally
+### Run locally
 
 ```bash
 cp .env.example .env.local
@@ -44,7 +151,7 @@ GEMINI_API_KEY=your_gemini_api_key
 Keep both keys server-side. The browser receives only the short-lived Reactor
 JWT and the image returned by the Nano Banana route.
 
-## Nano Banana kickoff example
+### Nano Banana kickoff example
 
 Connect to Orbis, expand **Livestreaming example**, and click
 **Edit and start stream**. The bundled `dog.png` is displayed as the source
@@ -59,7 +166,7 @@ The two starting prompts are exported from `lib/nano-banana.ts`.
 describes the requested motion. The final Gemini-grounded prompt is displayed
 before it is sent to Orbis.
 
-## API flow
+### API flow
 
 1. `POST /api/token` requests a scoped session JWT from
    `https://api.reactor.inc/tokens`.
@@ -76,7 +183,7 @@ before it is sent to Orbis.
 7. Sending another `set_prompt` while running steers the video at the next
    chunk boundary.
 
-## Documented model behavior
+### Documented model behavior
 
 - A prompt is required before `start`; the reference image is optional.
 - A 16:9 reference image works best. Other aspect ratios are resized without
@@ -93,7 +200,7 @@ before it is sent to Orbis.
 - `pause` takes effect after the current chunk. `resume` continues the same
   generation, and `reset` clears the current prompt and image.
 
-## Project files
+### Project files
 
 - `app/api/token/route.ts` performs the server-side token exchange.
 - `app/api/session-cleanup/route.ts` performs best-effort session deletion when
@@ -122,28 +229,3 @@ behavior, use the public Reactor documentation:
 - [Visko Orbis Stable API](https://www.reactor.inc/models/visko-orbis-stable/api)
 - [Visko Orbis Dynamic API](https://www.reactor.inc/models/visko-orbis-dynamic/api)
 - [Gemini image generation and editing](https://ai.google.dev/gemini-api/docs/image-generation)
-
-## Starship Window
-
-A cinematic cockpit built on Orbis Stable. Pick a destination on the console
-and the window flies you there live; an AI director keeps the journey moving
-and throws in emergencies to decide, and VESTA, a voice copilot on Gemini Live,
-watches the view with you and takes spoken orders (push-to-talk).
-
-- **Route:** `/window` (run locally as above, then open <http://localhost:3000/window>).
-- **Keys:** `REACTOR_API_KEY`, plus `GEMINI_API_KEY` for the director, scene
-  driver, VESTA and image renders. The Gemini project needs billing enabled;
-  free-tier quotas run out within a flight.
-- **Jumps:** *Cut* restarts Orbis on a pre-rendered opening frame
-  (`public/worlds/`), *Morph* steers the live shot; either way a WebGL
-  wormhole (`components/cut-dissolve.tsx`) covers the transition and releases
-  the moment the new world is on screen.
-- **Flights** are capped at 10 minutes per session and end with a docking
-  sequence back into the home bay.
-- **Where things live:** `components/starship-window.tsx` (cockpit),
-  `lib/starship.ts` (worlds, missions, prompts), `lib/copilot.ts` +
-  `lib/copilot-config.ts` (VESTA), `app/api/director`, `app/api/scene`,
-  `app/api/live-token`, `app/api/world-image` (server routes; API keys never
-  reach the browser — VESTA uses short-lived, config-locked Gemini tokens).
-- **Opening frames:** `scripts/generate-openers.mjs` renders them with Gemini;
-  `scripts/fit-16x9.py` trims letterboxing.
