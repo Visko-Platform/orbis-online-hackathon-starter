@@ -1,4 +1,4 @@
-# Orbis hackathon starter!
+# AI Scene Director
 
 A Next.js example for the public Reactor-hosted Visko Orbis API, in two parts:
 
@@ -65,11 +65,31 @@ action from three categories (Investigate, Manipulate, Intervene) or type a
 custom direction. The keys `1`–`3` choose, `Esc` goes back, `R` brings the
 camera back to the lead, and `/` jumps to the custom direction box.
 
-There are two films, defined in `lib/scenarios.ts`:
+### The two scenes
 
-- **Night market** starts from `market.png` and runs on Orbis Stable.
-- **Sky run** starts from `craft.png`, runs on Orbis Dynamic, and continues the
-  story from Night market when played straight after it.
+The **Scene** buttons above the video switch between two films. They are two
+parts of one story with the same cast: Kade, a replicant hunter; Iris, the
+fugitive he was sent to retire, who used to be his partner; and Captain Voss,
+his commander. Each film is one Orbis session, which is capped at 5 minutes.
+Both are defined in `lib/scenarios.ts`.
+
+| | Night market | Sky run |
+|---|---|---|
+| Story | Kade hunts Iris through a rain-soaked market on foot, finds her, and has to choose between his orders and his old partner. | Kade and Iris are in his craft with the proof against Voss, running for the off-world transport at the harbor. |
+| You control | The district's cameras, drones, lights, and weather | Air control, the tower guns, and the weather grid |
+| Voss is | A voice in Kade's earpiece | A voice on the radio, with interceptors |
+| Camera | Behind Kade at street level, moving in to a two-shot when he and Iris meet | Alongside the craft, which stays large in the frame |
+| Start image | `market.png` | `craft.png` |
+| Orbis model | Stable, which moves in for close shots of two people | Dynamic, which holds the start image's composition |
+
+Sky run is the sequel. Play at least one turn of Night market and then switch
+to Sky run, and the story carries over: the choices you made, the events that
+happened, and how far each character trusts you. The story is held in the
+browser, so reloading the page in between loses it. Start Sky run on its own
+and it opens from its default state, in which Kade and Iris have already
+escaped together. Night market always starts fresh.
+
+Switching scenes ends the one that is running.
 
 ### How a turn works
 
