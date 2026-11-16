@@ -1,0 +1,1859 @@
+/* Starship Window. Every position below is a percentage of the 1920×1080
+   cockpit art, so UI stays glued to the painted screens at any window size.
+   Text sizes use cqw (1cqw = 1% of the stage width) for the same reason. */
+
+/* Any screen from a 4:3 laptop to 32:9 cinema: the 16:9 cockpit stage is
+   fitted so it is never cropped by more than ~6% (pure "cover" would cut the
+   console off the bottom of an ultrawide). Whatever is left over on very wide
+   or very tall screens is cabin wall, continuing the cockpit's own metal. */
+.sw {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 30% 70% at 50% 45%, rgba(0, 0, 0, 0.9), transparent 75%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 7vh),
+    linear-gradient(90deg, #07080a, #17191c 18%, #0e1012 50%, #17191c 82%, #07080a);
+  font-family: var(--font-hud), ui-monospace, monospace;
+}
+
+.sw-stage {
+  --px: 0;
+  --py: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(max(100vw, 177.78vh), calc(min(100vw, 177.78vh) * 1.06));
+  aspect-ratio: 16 / 9;
+  container-type: inline-size;
+  transform: translate(-50%, -50%);
+  /* Blend the art's edges into the cabin wall when there are gutters. */
+  box-shadow: 0 0 6vh 3vh #0b0c0e;
+}
+
+/* 1. The world: oversized a little so parallax never shows an edge. */
+.sw-world {
+  position: absolute;
+  inset: -3%;
+  background: #000;
+  /* The world sways a little against the cabin, for depth. */
+  transform: translate(
+      calc(var(--px) * 7px - var(--sx, 0) * 0.5px),
+      calc(var(--py) * 4px - var(--sy, 0) * 0.5px)
+    )
+    rotate(calc(var(--bank, 0) * 3deg)) scale(calc(1 + var(--bank, 0) * var(--bank, 0) * 0.05));
+  transition: transform 1.1s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.sw-world > *,
+.sw-world video {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.sw-starfield {
+  background:
+    radial-gradient(ellipse 60% 45% at 40% 40%, #0f4d55cc, transparent 70%),
+    radial-gradient(ellipse 40% 35% at 65% 50%, #6b3d12aa, transparent 70%),
+    radial-gradient(1.5px 1.5px at 12% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 28% 58%, #cfe, transparent),
+    radial-gradient(1.5px 1.5px at 47% 18%, #fff, transparent),
+    radial-gradient(1px 1px at 63% 66%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 78% 30%, #fde, transparent),
+    radial-gradient(1px 1px at 88% 52%, #fff, transparent),
+    radial-gradient(1px 1px at 35% 38%, #fff, transparent),
+    radial-gradient(1px 1px at 55% 45%, #def, transparent),
+    #02030a;
+  animation: sw-drift 40s ease-in-out infinite alternate;
+}
+
+@keyframes sw-drift {
+  to {
+    transform: scale(1.08);
+  }
+}
+
+/* 2. Warp streaks. */
+.sw-warp {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 3. Glass: a faint diagonal sheen plus a vignette. */
+.sw-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      115deg,
+      transparent 28%,
+      rgba(255, 255, 255, 0.1) 40%,
+      transparent 52%
+    ),
+    radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.45));
+}
+
+/* 4–5. Cockpit and console UI move together, against the world. */
+.sw-cabin {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translate(
+      calc(var(--px) * -9px + var(--sx, 0) * 1px),
+      calc(var(--py) * -5px + var(--sy, 0) * 1px)
+    )
+    rotate(calc(var(--bank, 0) * -1.6deg + var(--sr, 0) * 1deg)) scale(1.02);
+  transition: transform 0.9s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.sw-cabin-inner {
+  position: absolute;
+  inset: 0;
+  /* Travel rumble (--rx/--ry/--rr, written every frame while jumping). The
+     individual translate/rotate properties stack with the shake animation's
+     transform instead of being overridden by it. */
+  translate: calc(var(--rx, 0) * 1px) calc(var(--ry, 0) * 1px);
+  rotate: calc(var(--rr, 0) * 1deg);
+}
+
+.sw-cabin-inner.is-shaking {
+  animation: sw-shake 0.11s linear infinite;
+}
+
+@keyframes sw-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(1.5px, -1px); }
+  50% { transform: translate(-1px, 1.5px); }
+  75% { transform: translate(1px, 1px); }
+  100% { transform: translate(-1.5px, -0.5px); }
+}
+
+.sw-cockpit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+/* Console screens (positions measured on the art). */
+.sw-screen {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25cqw;
+  overflow: hidden;
+  color: #8ff3ea;
+  font-size: 0.62cqw;
+  line-height: 1.25;
+  text-shadow: 0 0 0.4cqw rgba(80, 240, 220, 0.6);
+  pointer-events: auto;
+}
+
+.sw-screen-left,
+.sw-screen-right {
+  top: 87.2%;
+  width: 7.9%;
+  height: 6.8%;
+  justify-content: center;
+  padding: 0 0.4cqw;
+  background: rgba(2, 14, 16, 0.82);
+  border-radius: 0.2cqw;
+}
+
+.sw-screen-left {
+  left: 30.1%;
+}
+
+.sw-screen-right {
+  left: 62%;
+}
+
+.sw-screen strong {
+  overflow: hidden;
+  font-size: 0.95cqw;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-screen strong.is-low {
+  color: #ffb37a;
+  text-shadow: 0 0 0.4cqw rgba(255, 150, 80, 0.7);
+}
+
+.sw-label {
+  color: #f5b45a;
+  font-size: 0.5cqw;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-shadow: 0 0 0.4cqw rgba(255, 170, 70, 0.5);
+}
+
+.sw-era {
+  color: #5fcfc4;
+}
+
+.sw-bar {
+  display: block;
+  height: 0.25cqw;
+  background: rgba(143, 243, 234, 0.15);
+}
+
+.sw-bar span {
+  display: block;
+  height: 100%;
+  background: #8ff3ea;
+  transition: width 1s linear;
+}
+
+.sw-screen-center {
+  top: 82.6%;
+  left: 44%;
+  width: 12%;
+  height: 10.6%;
+  padding: 0.4cqw 0.5cqw;
+  background: rgba(2, 14, 16, 0.86);
+  border-radius: 0.25cqw;
+}
+
+.sw-log {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  flex: 1;
+  gap: 0.15cqw;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 0.5cqw;
+  list-style: none;
+}
+
+.sw-log li {
+  opacity: 0.55;
+}
+
+.sw-log li:last-child {
+  opacity: 1;
+}
+
+.sw-jumping {
+  color: #fff;
+  font-size: 0.62cqw;
+  animation: sw-blink 0.6s steps(2) infinite;
+}
+
+@keyframes sw-blink {
+  50% { opacity: 0.35; }
+}
+
+.sw-error {
+  margin: 0;
+  color: #ff9a8a;
+  font-size: 0.45cqw;
+}
+
+.sw-screen button,
+.sw-corner button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.sw-launch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2cqw;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  color: #031512;
+  font-size: 1.2cqw;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  background: #8ff3ea;
+  border: 0;
+  border-radius: 0.2cqw;
+  box-shadow: 0 0 1.2cqw rgba(80, 240, 220, 0.55);
+}
+
+.sw-launch small {
+  font-size: 0.45cqw;
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
+
+.sw-launch:hover {
+  filter: brightness(1.12);
+}
+
+.sw-plot-key {
+  align-self: flex-start;
+  padding: 0.1cqw 0.35cqw;
+  color: #f5b45a;
+  font-size: 0.45cqw;
+  background: transparent;
+  border: 1px solid rgba(245, 180, 90, 0.5);
+  border-radius: 0.15cqw;
+}
+
+.sw-plot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3cqw;
+  height: 100%;
+}
+
+.sw-plot input {
+  width: 100%;
+  padding: 0.25cqw 0.35cqw;
+  color: #dffaf7;
+  font: inherit;
+  font-size: 0.6cqw;
+  background: rgba(143, 243, 234, 0.08);
+  border: 1px solid rgba(143, 243, 234, 0.5);
+  border-radius: 0.15cqw;
+  outline: none;
+}
+
+.sw-hint {
+  color: #5fcfc4;
+  font-size: 0.42cqw;
+}
+
+/* Star-map keys on the console wings. */
+/* The stage is never cropped by more than ~3% a side, so the keys can sit
+   out on the console wings. */
+.sw-keys {
+  position: absolute;
+  top: 82.2%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3cqw;
+  width: 15.5%;
+  pointer-events: auto;
+}
+
+.sw-keys-left {
+  left: 6%;
+}
+
+.sw-keys-right {
+  right: 6%;
+}
+
+.sw-key {
+  display: grid;
+  grid-template-columns: 1.3cqw minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4cqw;
+  padding: 0.35cqw 0.5cqw;
+  color: #f8d9a8;
+  font: inherit;
+  font-size: 0.62cqw;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(#2b2217, #120e09);
+  border: 1px solid rgba(245, 180, 90, 0.55);
+  border-radius: 0.25cqw;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 160, 0.15),
+    0 0 0.6cqw rgba(245, 160, 60, 0.15);
+  transition:
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    transform 80ms ease;
+}
+
+.sw-key:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 160, 0.25),
+    0 0 1cqw rgba(245, 170, 70, 0.5);
+}
+
+.sw-key:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.sw-key:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sw-key.is-here {
+  opacity: 1;
+  color: #8ff3ea;
+  border-color: rgba(143, 243, 234, 0.6);
+  box-shadow: 0 0 0.8cqw rgba(80, 240, 220, 0.35);
+}
+
+.sw-key.is-target {
+  opacity: 1;
+  color: #fff;
+  animation: sw-blink 0.6s steps(2) infinite;
+}
+
+.sw-key-num {
+  display: grid;
+  place-items: center;
+  height: 1.3cqw;
+  color: #1a1206;
+  font-size: 0.6cqw;
+  background: #f5b45a;
+  border-radius: 0.15cqw;
+}
+
+.sw-key-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-key-era {
+  color: #c8955a;
+  font-size: 0.5cqw;
+}
+
+/* Small out-of-fiction controls, tucked into the ceiling. */
+.sw-corner {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sw-corner a,
+.sw-corner button,
+.sw-status {
+  padding: 4px 10px;
+  color: #c9c2b0;
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.sw-corner button:disabled {
+  opacity: 0.4;
+}
+
+.sw-status.status-ready {
+  color: #8ee59d;
+}
+
+.sw-keys-title {
+  color: #c8955a;
+  font-size: 0.45cqw;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sw-key.is-generated {
+  color: #c9fbf5;
+  background: linear-gradient(#11302d, #08191a);
+  border-color: rgba(143, 243, 234, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(180, 255, 245, 0.15),
+    0 0 0.6cqw rgba(80, 240, 220, 0.18);
+}
+
+.sw-key.is-generated .sw-key-num {
+  color: #04211e;
+  background: #8ff3ea;
+}
+
+.sw-key.is-generated .sw-key-era {
+  color: #5fcfc4;
+}
+
+.sw-key.is-scanning {
+  color: #5fcfc4;
+  cursor: progress;
+  background: linear-gradient(#0c1f1e, #070f10);
+  border-color: rgba(143, 243, 234, 0.25);
+  animation: sw-scan 1.2s ease-in-out infinite;
+}
+
+.sw-key.is-scanning .sw-key-num {
+  color: #04211e;
+  background: rgba(143, 243, 234, 0.4);
+}
+
+@keyframes sw-scan {
+  50% { opacity: 0.45; }
+}
+
+/* Event alert, across the top of the windshield. */
+.sw-alert {
+  position: absolute;
+  top: 19%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.8cqw;
+  padding: 0.5cqw 1.2cqw;
+  color: #ffe1c2;
+  font-size: 1.05cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: rgba(60, 12, 6, 0.72);
+  border: 1px solid rgba(255, 120, 70, 0.7);
+  border-radius: 0.3cqw;
+  box-shadow: 0 0 2cqw rgba(255, 90, 40, 0.35);
+  transform: translateX(-50%);
+  animation: sw-alert-in 240ms ease-out, sw-alert-pulse 1s ease-in-out infinite 240ms;
+}
+
+.sw-alert span {
+  padding: 0.15cqw 0.5cqw;
+  color: #2a0600;
+  font-size: 0.6cqw;
+  background: #ff8a5c;
+  border-radius: 0.15cqw;
+}
+
+@keyframes sw-alert-in {
+  from { opacity: 0; transform: translate(-50%, -0.6cqw); }
+}
+
+@keyframes sw-alert-pulse {
+  50% { box-shadow: 0 0 3.2cqw rgba(255, 90, 40, 0.6); }
+}
+
+/* VESTA's subtitles, cinema style over the lower windshield. */
+/* Low on the glass like film subtitles, never across the middle of the view:
+   just above the route cards / decision when they're up, otherwise right at
+   the windshield's bottom edge. */
+.sw-subtitle {
+  position: absolute;
+  bottom: 32.5%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35cqw;
+  width: min(56%, 52cqw);
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: sw-fade-in 200ms ease-out;
+}
+
+.sw-stage:not(:has(.sw-choices, .sw-decision, .sw-detonate)) .sw-subtitle {
+  bottom: 25.5%;
+}
+
+.sw-subtitle p {
+  margin: 0;
+  padding: 0.3cqw 0.9cqw;
+  color: #f4fffd;
+  font-size: 1cqw;
+  line-height: 1.35;
+  background: rgba(2, 10, 12, 0.6);
+  border-radius: 0.3cqw;
+  text-shadow: 0 0 0.6cqw rgba(0, 0, 0, 0.9);
+}
+
+.sw-subtitle-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4cqw;
+  color: #8ff3ea;
+  font-size: 0.6cqw;
+  letter-spacing: 0.3em;
+}
+
+.sw-subtitle-name i {
+  width: 0.5cqw;
+  height: 0.5cqw;
+  background: #8ff3ea;
+  border-radius: 50%;
+  box-shadow: 0 0 0.6cqw #8ff3ea;
+  opacity: 0.4;
+}
+
+.sw-subtitle.is-speaking .sw-subtitle-name i {
+  opacity: 1;
+  animation: sw-voice 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes sw-voice {
+  to { transform: scale(1.6); }
+}
+
+@keyframes sw-fade-in {
+  from { opacity: 0; }
+}
+
+/* Helm and mission: holographic HUD panels that collapse to a slim tab.
+   Motion vocabulary (shared by every panel):
+     - unfold: the body grows from the tab (380 ms, decelerating);
+     - scan:   a bright line sweeps across the body once as it opens;
+     - lock:   corner brackets snap to the panel's corners;
+     - reveal: content lines fade up one after another (40 ms stagger). */
+.holo {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  color: #c9fbf5;
+  font-size: 0.6cqw;
+  filter: drop-shadow(0 0 0.8cqw rgba(80, 240, 220, 0.12));
+}
+
+.sw-helm {
+  bottom: 25%;
+  left: 7.5%;
+  width: 10.5%;
+  flex-direction: column-reverse; /* sits low: unfolds upward */
+}
+
+.sw-mission {
+  top: 19%;
+  right: 7.5%;
+  width: 16%;
+}
+
+.holo-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5cqw;
+  width: 100%;
+  padding: 0.45cqw 0.7cqw;
+  color: #c9fbf5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(90deg, rgba(8, 40, 42, 0.82), rgba(4, 20, 22, 0.7));
+  border: 1px solid rgba(143, 243, 234, 0.4);
+  clip-path: polygon(0.6cqw 0, 100% 0, 100% calc(100% - 0.6cqw), calc(100% - 0.6cqw) 100%, 0 100%, 0 0.6cqw);
+  backdrop-filter: blur(4px);
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+.holo-tab:hover {
+  border-color: rgba(143, 243, 234, 0.85);
+}
+
+.holo-title {
+  color: #f5b45a;
+  font-size: 0.5cqw;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.holo-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.62cqw;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.holo-key {
+  padding: 0 0.3cqw;
+  color: rgba(201, 251, 245, 0.55);
+  font: inherit;
+  font-size: 0.45cqw;
+  border: 1px solid rgba(143, 243, 234, 0.3);
+  border-radius: 0.15cqw;
+}
+
+.holo-body {
+  position: relative;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 380ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 220ms ease;
+}
+
+.holo.is-open .holo-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.holo-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqw;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 0.8cqw;
+  background:
+    /* corner brackets */
+    linear-gradient(#8ff3ea, #8ff3ea) top left / 0.9cqw 1px no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) top left / 1px 0.9cqw no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) bottom right / 0.9cqw 1px no-repeat,
+    linear-gradient(#8ff3ea, #8ff3ea) bottom right / 1px 0.9cqw no-repeat,
+    /* faint scan lines */
+    repeating-linear-gradient(0deg, rgba(143, 243, 234, 0.035) 0 1px, transparent 1px 3px),
+    rgba(4, 22, 24, 0.62);
+  backdrop-filter: blur(4px);
+  transition: padding 380ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.holo.is-open .holo-inner {
+  padding: 0.7cqw 0.8cqw;
+}
+
+/* Scan line sweeping once across the body as it opens. */
+.holo-body::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, transparent, #c9fff9, transparent);
+  box-shadow: 0 0 0.8cqw #8ff3ea;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo.is-open .holo-body::after {
+  animation: holo-scan 620ms cubic-bezier(0.3, 0.6, 0.3, 1) 80ms;
+}
+
+@keyframes holo-scan {
+  0% { top: 0; opacity: 0; }
+  15% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* Content lines rise in one after another. */
+.holo.is-open .holo-inner > * {
+  animation: holo-line 360ms cubic-bezier(0.2, 0.9, 0.2, 1) backwards;
+}
+
+.holo.is-open .holo-inner > :nth-child(2) { animation-delay: 40ms; }
+.holo.is-open .holo-inner > :nth-child(3) { animation-delay: 80ms; }
+.holo.is-open .holo-inner > :nth-child(4) { animation-delay: 120ms; }
+.holo.is-open .holo-inner > :nth-child(5) { animation-delay: 160ms; }
+
+@keyframes holo-line {
+  from {
+    opacity: 0;
+    transform: translateY(0.4cqw);
+    filter: blur(2px);
+  }
+}
+
+.sw-mission-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5cqw;
+  text-transform: none;
+}
+
+.sw-mission-summary .sw-pips {
+  flex: 0 0 4cqw;
+}
+
+/* The briefing stows into the mission tab on ENGAGE. */
+.sw-briefing.is-stowing {
+  animation: sw-stow 900ms cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+
+@keyframes sw-stow {
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translate(24cqw, -21cqw) scale(0.18);
+    filter: blur(1px);
+  }
+}
+
+/* Wide screens: the live world glows into the side bands. */
+.sw-ambient {
+  position: absolute;
+  inset: -10%;
+  width: 120%;
+  height: 120%;
+  opacity: 0;
+  filter: blur(60px) saturate(1.4) brightness(0.55);
+  transition: opacity 1.2s ease;
+}
+
+.sw-ambient.is-live {
+  opacity: 1;
+}
+
+.sw-helm button,
+.sw-mission button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.sw-throttle {
+  display: grid;
+  gap: 0.25cqw;
+}
+
+.sw-throttle > button,
+.sw-bank button {
+  padding: 0.15cqw 0;
+  color: #8ff3ea;
+  font-size: 0.6cqw;
+  background: rgba(143, 243, 234, 0.08);
+  border: 1px solid rgba(143, 243, 234, 0.35);
+  border-radius: 0.2cqw;
+}
+
+.sw-throttle > button:hover,
+.sw-bank button:hover {
+  background: rgba(143, 243, 234, 0.2);
+}
+
+.sw-throttle ol {
+  display: grid;
+  gap: 0.15cqw;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sw-throttle li {
+  padding: 0.1cqw 0.4cqw;
+  color: rgba(201, 251, 245, 0.4);
+  font-size: 0.55cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-left: 0.2cqw solid transparent;
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.sw-throttle li.is-on {
+  color: #04211e;
+  background: #8ff3ea;
+  border-left-color: #f5b45a;
+}
+
+.sw-bank {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25cqw;
+}
+
+.sw-bank button {
+  font-size: 0.5cqw;
+}
+
+.sw-bank button.is-on {
+  color: #04211e;
+  background: #8ff3ea;
+}
+
+.sw-mission .holo-inner > strong {
+  color: #f8d9a8;
+  font-size: 0.85cqw;
+  font-weight: 400;
+}
+
+.sw-mission p {
+  margin: 0;
+  color: #a7d8d2;
+  font-size: 0.52cqw;
+  line-height: 1.4;
+}
+
+.sw-pips {
+  display: flex;
+  gap: 0.3cqw;
+}
+
+.sw-pips i {
+  flex: 1;
+  height: 0.3cqw;
+  background: rgba(245, 180, 90, 0.2);
+  border-radius: 0.15cqw;
+}
+
+.sw-pips i.is-on {
+  background: #f5b45a;
+  box-shadow: 0 0 0.6cqw rgba(245, 180, 90, 0.7);
+}
+
+.sw-mission.is-done .holo-tab {
+  border-color: rgba(245, 180, 90, 0.7);
+}
+
+/* Mission routes glow gold. */
+.sw-choice.is-mission {
+  border-color: rgba(245, 180, 90, 0.75);
+  box-shadow:
+    0 0 1.6cqw rgba(245, 170, 70, 0.3),
+    inset 0 0 1.2cqw rgba(245, 170, 70, 0.1);
+}
+
+.sw-choice-badge {
+  position: absolute;
+  top: 0.4cqw;
+  right: 0.5cqw;
+  padding: 0.05cqw 0.4cqw;
+  color: #2a1700;
+  font-size: 0.45cqw;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  background: #f5b45a;
+  border-radius: 0.15cqw;
+}
+
+.sw-key.is-mission {
+  border-color: rgba(245, 180, 90, 0.85);
+  box-shadow: 0 0 0.9cqw rgba(245, 170, 70, 0.4);
+}
+
+/* Captain's log: postcards from the flight. */
+.sw-reel {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 32px;
+  overflow-y: auto;
+  color: #e6fffb;
+  background: rgba(2, 6, 8, 0.86);
+  backdrop-filter: blur(8px);
+  animation: sw-fade-in 400ms ease-out;
+}
+
+.sw-reel header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.sw-reel .sw-label {
+  font-size: 12px;
+}
+
+.sw-reel h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 40px);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+.sw-reel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 300px));
+  justify-content: center;
+  gap: 18px;
+  width: min(1300px, 100%);
+}
+
+.sw-reel figure {
+  margin: 0;
+  overflow: hidden;
+  background: #071214;
+  border: 1px solid rgba(143, 243, 234, 0.25);
+  border-radius: 8px;
+  opacity: 0;
+  animation: sw-choice-in 600ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.sw-reel img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.sw-reel figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 12px;
+}
+
+.sw-reel figcaption span {
+  color: #5fcfc4;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sw-reel figcaption strong {
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.sw-reel figcaption em {
+  color: #a7d8d2;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+.sw-reel > button {
+  padding: 8px 18px;
+  color: #04211e;
+  font: inherit;
+  cursor: pointer;
+  background: #8ff3ea;
+  border: 0;
+  border-radius: 999px;
+}
+
+/* Blast shield: closed during the briefing, parts on ENGAGE. The world is
+   already live behind it, which hides Orbis's start-up delay. */
+.sw-shield {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.sw-shield-door {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 50.5%;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 9cqw),
+    linear-gradient(#1b1e22, #0d0f12);
+  transition: transform 1.3s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.sw-shield-top {
+  top: 0;
+  border-bottom: 0.25cqw solid #f5b45a;
+  box-shadow: 0 0.4cqw 1.6cqw rgba(245, 170, 70, 0.35);
+}
+
+.sw-shield-bottom {
+  bottom: 0;
+  border-top: 0.25cqw solid #f5b45a;
+}
+
+.sw-shield.is-opening .sw-shield-top {
+  transform: translateY(-102%);
+}
+
+.sw-shield.is-opening .sw-shield-bottom {
+  transform: translateY(102%);
+}
+
+/* Docking: the doors slide in from open and meet heavily; they stay shut. */
+.sw-shield.is-sealing .sw-shield-top {
+  animation: sw-seal-top 1.6s cubic-bezier(0.5, 0, 0.75, 1) both;
+}
+.sw-shield.is-sealing .sw-shield-bottom {
+  animation: sw-seal-bottom 1.6s cubic-bezier(0.5, 0, 0.75, 1) both;
+}
+@keyframes sw-seal-top {
+  from { transform: translateY(-102%); }
+  92% { transform: translateY(0.6%); }
+  to { transform: translateY(0); }
+}
+@keyframes sw-seal-bottom {
+  from { transform: translateY(102%); }
+  92% { transform: translateY(-0.6%); }
+  to { transform: translateY(0); }
+}
+
+.sw-briefing {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7cqw;
+  width: min(46%, 44cqw);
+  padding: 1.6cqw 2cqw;
+  color: #e6fffb;
+  text-align: center;
+  background: rgba(3, 14, 16, 0.86);
+  border: 1px solid rgba(143, 243, 234, 0.4);
+  border-radius: 0.5cqw;
+  box-shadow: 0 0 3cqw rgba(80, 240, 220, 0.15);
+  transform: translate(-50%, -50%);
+  animation: sw-fade-in 500ms ease-out;
+}
+
+.sw-briefing .sw-label {
+  font-size: 0.6cqw;
+}
+
+.sw-briefing h2 {
+  margin: 0;
+  color: #f8d9a8;
+  font-size: 2cqw;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+
+.sw-briefing p {
+  margin: 0;
+  color: #b9e6e0;
+  font-size: 0.85cqw;
+  line-height: 1.5;
+}
+
+.sw-briefing-first {
+  color: #8ff3ea !important;
+}
+
+.sw-briefing-actions {
+  display: flex;
+  gap: 0.8cqw;
+  margin-top: 0.4cqw;
+}
+
+.sw-engage,
+.sw-briefing-next {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0.3cqw;
+}
+
+.sw-engage {
+  min-width: 14cqw;
+  padding: 0.6cqw 1.6cqw;
+  color: #04211e;
+  font-size: 1cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  background: #8ff3ea;
+  border: 0;
+  box-shadow: 0 0 1.6cqw rgba(80, 240, 220, 0.6);
+  animation: sw-alert-pulse 1.4s ease-in-out infinite;
+}
+
+.sw-engage:disabled {
+  color: #8ff3ea;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  cursor: progress;
+  background: rgba(143, 243, 234, 0.1);
+  box-shadow: none;
+  animation: sw-scan 1.2s ease-in-out infinite;
+}
+
+.sw-briefing-next {
+  padding: 0.6cqw 1cqw;
+  color: #f5b45a;
+  font-size: 0.7cqw;
+  background: transparent;
+  border: 1px solid rgba(245, 180, 90, 0.5);
+}
+
+.sw-launch.is-engage {
+  animation: sw-alert-pulse 1.4s ease-in-out infinite;
+}
+
+/* Emergency decision: two choices and a draining timer. */
+.sw-decision {
+  position: absolute;
+  bottom: 24%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7cqw;
+  width: min(54%, 52cqw);
+  transform: translateX(-50%);
+  animation: sw-choice-in 420ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.sw-decision-title {
+  color: #ffd2b8;
+  font-size: 0.75cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-shadow: 0 0 1cqw rgba(255, 90, 40, 0.8);
+}
+
+.sw-decision-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1cqw;
+  width: 100%;
+}
+
+.sw-decision-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8cqw;
+  padding: 1cqw 1.2cqw;
+  color: #dffcf8;
+  font: inherit;
+  font-size: 1.3cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: linear-gradient(160deg, rgba(10, 52, 50, 0.88), rgba(4, 18, 20, 0.9));
+  border: 1px solid rgba(143, 243, 234, 0.7);
+  clip-path: polygon(1cqw 0, 100% 0, 100% calc(100% - 1cqw), calc(100% - 1cqw) 100%, 0 100%, 0 1cqw);
+  box-shadow: inset 0 0 1.6cqw rgba(80, 240, 220, 0.15);
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
+}
+
+.sw-decision-button.is-bold {
+  color: #ffe6d4;
+  background: linear-gradient(160deg, rgba(80, 26, 8, 0.9), rgba(30, 8, 2, 0.92));
+  border-color: rgba(255, 138, 92, 0.85);
+  box-shadow: inset 0 0 1.6cqw rgba(255, 110, 60, 0.2);
+}
+
+.sw-decision-button:hover {
+  filter: brightness(1.25);
+  transform: translateY(-0.2cqw);
+}
+
+.sw-decision-button kbd {
+  padding: 0 0.35cqw;
+  font: inherit;
+  font-size: 0.6cqw;
+  border: 1px solid currentColor;
+  border-radius: 0.15cqw;
+  opacity: 0.7;
+}
+
+.sw-decision-button small {
+  color: #f5b45a;
+  font-size: 0.7cqw;
+  letter-spacing: 0.05em;
+}
+
+.sw-decision-timer {
+  width: 100%;
+  height: 0.25cqw;
+  background: linear-gradient(90deg, #ff8a5c, #f5b45a);
+  box-shadow: 0 0 0.8cqw rgba(255, 120, 60, 0.7);
+  transform-origin: left;
+  animation: sw-drain linear forwards;
+}
+
+@keyframes sw-drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* The Impactor finale. */
+.sw-detonate {
+  position: absolute;
+  bottom: 25%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.sw-detonate-button {
+  padding: 0.9cqw 2.6cqw;
+  color: #2a0600;
+  font: inherit;
+  font-size: 1.4cqw;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: #ff8a5c;
+  border: 0;
+  border-radius: 0.4cqw;
+  box-shadow: 0 0 2.4cqw rgba(255, 110, 60, 0.7);
+  animation: sw-alert-pulse 0.8s ease-in-out infinite, sw-choice-in 400ms ease-out;
+}
+
+.sw-detonate-button.is-reverse {
+  color: #04211e;
+  background: #8ff3ea;
+  box-shadow: 0 0 2.4cqw rgba(80, 240, 220, 0.7);
+}
+
+.sw-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #ffd2b8;
+  text-shadow: 0 0 1.4cqw rgba(255, 90, 40, 0.8);
+}
+
+.sw-countdown span {
+  font-size: 0.8cqw;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.sw-countdown strong {
+  font-size: 6cqw;
+  font-weight: 400;
+  line-height: 1;
+  animation: sw-tick 1s ease-out;
+}
+
+@keyframes sw-tick {
+  from {
+    opacity: 0.2;
+    transform: scale(1.5);
+  }
+}
+
+.sw-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, #fff, #ffd9b0 40%, rgba(255, 160, 80, 0) 75%);
+  animation: sw-flash 1.6s ease-out forwards;
+}
+
+@keyframes sw-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.sw-score {
+  color: #c8955a;
+  font-size: 0.55cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sw-score strong {
+  display: inline-block;
+  margin-left: 0.3cqw;
+  color: #f8d9a8;
+  font-size: 0.8cqw;
+  font-weight: 400;
+  letter-spacing: 0;
+  animation: sw-tick 600ms ease-out;
+}
+
+.sw-reel-score {
+  color: #f5b45a;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* VESTA's orb, lower right of the windshield. --level (0–1) is her live
+   voice loudness, written every frame. */
+.sw-orb {
+  --level: 0;
+  position: absolute;
+  right: 14%;
+  bottom: 33.5%;
+  display: grid;
+  place-items: center;
+  width: 6cqw;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+
+.sw-orb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  transform: scale(calc(0.86 + var(--level) * 0.32));
+  filter: brightness(calc(0.85 + var(--level) * 1.1)) saturate(calc(1 + var(--level) * 0.6));
+  animation: sw-orb-breathe 4.2s ease-in-out infinite;
+  will-change: transform, filter;
+}
+
+.sw-orb.is-speaking img {
+  animation: none;
+}
+
+@keyframes sw-orb-breathe {
+  50% {
+    transform: scale(0.92);
+    filter: brightness(1);
+  }
+}
+
+.sw-orb-ripple {
+  position: absolute;
+  inset: 22%;
+  border: 1px solid rgba(143, 243, 234, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 0.8cqw rgba(80, 240, 220, 0.6);
+  animation: sw-orb-ripple 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+@keyframes sw-orb-ripple {
+  to {
+    inset: -35%;
+    opacity: 0;
+  }
+}
+
+.sw-orb-name {
+  position: absolute;
+  bottom: -0.6cqw;
+  color: #8ff3ea;
+  font-size: 0.5cqw;
+  letter-spacing: 0.35em;
+  opacity: calc(0.45 + var(--level));
+}
+
+/* Gemini Live link light, under VESTA's name. */
+.sw-orb-link {
+  position: absolute;
+  bottom: -1.75cqw;
+  display: flex;
+  align-items: center;
+  gap: 0.35cqw;
+  padding: 0.15cqw 0.5cqw;
+  border: 1px solid rgb(143 243 234 / 0.18);
+  border-radius: 999px;
+  background: rgb(4 14 18 / 0.55);
+  color: #8ff3ea;
+  font: inherit;
+  font-size: 0.42cqw;
+  letter-spacing: 0.25em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sw-orb-link i {
+  width: 0.45cqw;
+  height: 0.45cqw;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0.5cqw currentColor;
+}
+.sw-orb-link.is-live i { animation: sw-link-beat 2.4s ease-in-out infinite; }
+.sw-orb-link.is-connecting,
+.sw-orb-link.is-reconnecting { color: #ffc46b; border-color: rgb(255 196 107 / 0.25); }
+.sw-orb-link.is-connecting i,
+.sw-orb-link.is-reconnecting i { animation: sw-link-beat 0.6s ease-in-out infinite; }
+.sw-orb-link.is-offline {
+  color: #ff7a7a;
+  border-color: rgb(255 122 122 / 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sw-orb-link.is-offline:hover { background: rgb(60 10 10 / 0.6); }
+@keyframes sw-link-beat {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Ultra-wide screens (≈21:10 and wider): the extended 32:9 cockpit. The
+   stage stays the 16:9 UI box in the middle; the art, world, warp and glass
+   extend half a box to each side. Measured on the art: the wide cockpit's
+   windshield ends 2.5% higher and its console sits 2.3% higher, so the UI
+   is shifted by exactly that. */
+@media (min-aspect-ratio: 21/10) {
+  .sw-stage {
+    width: calc(min(max(100vw, 355.56vh), 376.9vh) / 2);
+    box-shadow: none;
+  }
+  .sw-world {
+    left: -53%;
+    right: -53%;
+  }
+  .sw-warp,
+  .sw-glass,
+  .sw-cockpit {
+    left: -50%;
+    width: 200%;
+  }
+  /* The blast shield covers every window, not just the centre. */
+  .sw-shield {
+    left: -50%;
+    right: -50%;
+  }
+  .sw-glass {
+    right: auto;
+  }
+  .sw-screen-center { top: 80.3%; }
+  .sw-screen-left,
+  .sw-screen-right { top: 84.9%; }
+  .sw-keys { top: 79.9%; }
+  .sw-choices { bottom: 29%; }
+  .sw-decision { bottom: 29%; }
+  .sw-detonate { bottom: 30%; }
+  .sw-helm { bottom: 29.5%; }
+  .sw-orb { bottom: 36.5%; }
+  .sw-subtitle { bottom: 38%; }
+  .sw-stage:not(:has(.sw-choices, .sw-decision, .sw-detonate)) .sw-subtitle { bottom: 30.5%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-orb img {
+    animation: none;
+  }
+}
+
+/* VESTA's plotted routes: holo cards that slide up over the lower windshield. */
+.sw-choices {
+  position: absolute;
+  bottom: 23.5%;
+  left: 50%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9cqw;
+  width: min(62%, 60cqw);
+  transform: translateX(-50%);
+}
+
+.sw-choice {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto auto;
+  column-gap: 0.6cqw;
+  align-items: center;
+  padding: 0.7cqw 0.9cqw;
+  overflow: hidden;
+  color: #e6fffb;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: linear-gradient(160deg, rgba(10, 48, 46, 0.78), rgba(4, 16, 18, 0.82));
+  border: 1px solid rgba(143, 243, 234, 0.45);
+  border-radius: 0.45cqw;
+  box-shadow:
+    0 0 1.4cqw rgba(80, 240, 220, 0.18),
+    inset 0 0 1.2cqw rgba(80, 240, 220, 0.08);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  animation: sw-choice-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+/* A light sweep across each card as it lands. */
+.sw-choice::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(105deg, transparent 35%, rgba(200, 255, 250, 0.22) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: sw-sweep 900ms ease-out 380ms forwards;
+  animation-delay: inherit;
+  pointer-events: none;
+}
+
+.sw-choice:hover {
+  border-color: rgba(143, 243, 234, 0.9);
+  box-shadow:
+    0 0 2.2cqw rgba(80, 240, 220, 0.4),
+    inset 0 0 1.4cqw rgba(80, 240, 220, 0.14);
+  transform: translateY(-0.25cqw);
+}
+
+.sw-choice:active {
+  transform: translateY(0);
+}
+
+.sw-choice-num {
+  grid-row: 1 / span 3;
+  display: grid;
+  place-items: center;
+  width: 1.9cqw;
+  height: 1.9cqw;
+  color: #04211e;
+  font-size: 0.95cqw;
+  background: #8ff3ea;
+  border-radius: 50%;
+  box-shadow: 0 0 0.9cqw rgba(143, 243, 234, 0.7);
+}
+
+.sw-choice-era {
+  color: #5fcfc4;
+  font-size: 0.55cqw;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sw-choice strong {
+  overflow: hidden;
+  font-size: 0.95cqw;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sw-choice em {
+  overflow: hidden;
+  color: #a7d8d2;
+  font-size: 0.6cqw;
+  font-style: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@keyframes sw-choice-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.2cqw) scale(0.96);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes sw-sweep {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+label.sw-mix {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  font-size: 12px;
+  gap: 6px;
+  padding: 3px 10px;
+  color: #c9c2b0;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.sw-mix input[type="range"] {
+  width: 90px;
+  padding: 0;
+  background: none;
+  border: 0;
+  accent-color: #8ff3ea;
+}
+
+.sw-mix output {
+  min-width: 3.2em;
+  color: #8ff3ea;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo-body,
+  .holo-inner {
+    transition: none;
+  }
+  .holo.is-open .holo-body::after,
+  .holo.is-open .holo-inner > *,
+  .sw-briefing.is-stowing {
+    animation: none;
+  }
+  .sw-choice,
+  .sw-choice::after {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-alert,
+  .sw-key.is-scanning,
+  .sw-subtitle.is-speaking .sw-subtitle-name i {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-starfield,
+  .sw-cabin-inner.is-shaking,
+  .sw-jumping,
+  .sw-key.is-target {
+    animation: none;
+  }
+}
+
+/* Floating UI always draws above the cockpit frame, so nothing that sits low
+   on the glass can disappear behind the metal on any screen shape. */
+.sw-cabin {
+  z-index: 1;
+}
+
+.sw-choices,
+.sw-decision,
+.sw-detonate,
+.sw-subtitle,
+.sw-orb,
+.sw-alert,
+.holo {
+  z-index: 2;
+}
+
+/* View B ("focused"): the world video stays sized to the central 16:9 box
+   (on an ultrawide that's ~2x sharper than stretching it across every
+   window) and fades to black toward the outer windows: deep space. */
+.sw.view-focus .sw-stage::before {
+  position: absolute;
+  top: -3%;
+  bottom: -3%;
+  left: -60%;
+  right: -60%;
+  content: "";
+  background: #000;
+}
+
+.sw.view-focus .sw-world {
+  inset: -3%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 11%, #000 89%, transparent 100%);
+}
+
+.sw.view-focus .sw-ambient {
+  opacity: 0;
+}
+
+@media (min-aspect-ratio: 21/10) {
+  .sw.view-focus .sw-world {
+    left: -3%;
+    right: -3%;
+  }
+}
+
+/* The cut-jump transition canvas (see components/cut-dissolve.tsx). */
+.sw-cut {
+  display: none;
+}
+
+.sw-cut.is-active {
+  display: block;
+}
+
+.sw-cut canvas {
+  object-fit: cover;
+  transition: opacity 1.1s ease;
+}
+
+/* 2D fallback (no WebGL): fade the frozen frame away. */
+.sw-cut.is-fading canvas {
+  opacity: 0;
+}
+
+/* Voice: the captain's line, the listening orb, the talk button. */
+/* The captain's line sits just above VESTA's, low on the glass. */
+.sw-subtitle.is-captain {
+  bottom: 38.5%;
+}
+
+@media (min-aspect-ratio: 21/10) {
+  .sw-subtitle.is-captain {
+    bottom: 41%;
+  }
+}
+
+.sw-subtitle.is-captain .sw-subtitle-name {
+  color: #f5b45a;
+}
+
+.sw-subtitle.is-captain .sw-subtitle-name i {
+  background: #ff8a5c;
+  box-shadow: 0 0 0.6cqw #ff8a5c;
+  opacity: 1;
+  animation: sw-voice 0.5s ease-in-out infinite alternate;
+}
+
+.sw-subtitle.is-captain p {
+  color: #ffe7cf;
+}
+
+.sw-orb.is-listening::after {
+  position: absolute;
+  inset: 8%;
+  content: "";
+  border: 2px solid rgba(255, 138, 92, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 1.2cqw rgba(255, 120, 60, 0.6);
+  animation: sw-alert-pulse 0.9s ease-in-out infinite;
+}
+
+.sw-corner .sw-talk.is-on {
+  color: #2a0600;
+  background: #ff8a5c;
+  border-color: #ff8a5c;
+}
+
+/* Presentation mode: pure cockpit. */
+.sw.is-presenting .sw-corner {
+  display: none;
+}
+
+.sw.is-cursor-idle,
+.sw.is-cursor-idle * {
+  cursor: none !important;
+}
+
+/* Console keys on the centre screen: plot, and hold-to-dock. */
+.sw-screen-keys {
+  display: flex;
+  gap: 0.35cqw;
+}
+
+.sw-dock-key {
+  position: relative;
+  overflow: hidden;
+  padding: 0.1cqw 0.45cqw;
+  color: #ffb37a;
+  font: inherit;
+  font-size: 0.45cqw;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  background: rgba(60, 20, 6, 0.6);
+  border: 1px solid rgba(255, 138, 92, 0.55);
+  border-radius: 0.15cqw;
+  user-select: none;
+  touch-action: none;
+}
+
+.sw-dock-key:hover {
+  border-color: rgba(255, 138, 92, 0.95);
+  box-shadow: 0 0 0.6cqw rgba(255, 120, 60, 0.4);
+}
+
+/* The fill charges for the 1 s hold; release early to cancel. */
+.sw-dock-fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(255, 138, 92, 0.45);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.sw-dock-key.is-holding .sw-dock-fill {
+  transform: scaleX(1);
+  transition: transform 1s linear;
+}
+
+.sw-dock-key.is-holding {
+  color: #fff1e6;
+}
+
+.sw-screen-keys .sw-plot-key,
+.sw-screen-keys .sw-dock-key {
+  font-size: 0.42cqw;
+  white-space: nowrap;
+}

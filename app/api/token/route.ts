@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
-const REACTOR_API_URL = "https://api.reactor.inc";
-const MODEL_NAME = "reactor/visko-orbis-stable";
+import { ORBIS_MODELS, SESSION_LIMIT_SECONDS } from "@/lib/orbis";
 
-export async function POST() {
+const REACTOR_API_URL = "https://api.reactor.inc";
+
+export async function POST(request: Request) {
+  // ?model=dynamic switches to Orbis Dynamic; anything else is Stable.
+  const requested = new URL(request.url).searchParams.get("model");
+  const MODEL_NAME = requested === "dynamic" ? ORBIS_MODELS.dynamic : ORBIS_MODELS.stable;
+
   const apiKey = process.env.REACTOR_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -24,7 +29,10 @@ export async function POST() {
         {
           type: "session",
           resources: { models: { match: [MODEL_NAME] } },
-          constraints: { max_sessions: 1, max_session_duration_seconds: 300 },
+          constraints: {
+            max_sessions: 1,
+            max_session_duration_seconds: SESSION_LIMIT_SECONDS,
+          },
         },
       ],
     }),
